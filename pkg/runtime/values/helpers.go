@@ -114,6 +114,14 @@ func Parse(input interface{}) core.Value {
 		return NewBoolean(value)
 	case string:
 		return NewString(value)
+	case int64:
+		return NewInt(int(value))
+	case int32:
+		return NewInt(int(value))
+	case int16:
+		return NewInt(int(value))
+	case int8:
+		return NewInt(int(value))
 	case int:
 		return NewInt(value)
 	case float64:
@@ -385,6 +393,28 @@ func ToArray(ctx context.Context, input core.Value) *Array {
 	}
 }
 
+func ToStrings(input []core.Value) []String {
+	res := make([]String, len(input))
+
+	for i, v := range input {
+		res[i] = NewString(v.String())
+	}
+
+	return res
+}
+
+func ToStrings2(input *Array) []String {
+	res := make([]String, input.Length())
+
+	input.ForEach(func(v core.Value, i int) bool {
+		res[i] = NewString(v.String())
+
+		return true
+	})
+
+	return res
+}
+
 func MapHash(input map[string]core.Value) uint64 {
 	h := fnv.New64a()
 
@@ -426,4 +456,14 @@ func IsNumber(input core.Value) Boolean {
 	t := input.Type()
 
 	return t == types.Int || t == types.Float
+}
+
+func UnwrapStrings(values []String) []string {
+	out := make([]string, len(values))
+
+	for i, v := range values {
+		out[i] = v.String()
+	}
+
+	return out
 }
