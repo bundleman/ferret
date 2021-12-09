@@ -33,15 +33,17 @@ func NewDriver(opts ...Option) *Driver {
 	drv.options = NewOptions(opts)
 
 	drv.client = newHTTPClient(drv.options)
-	drv.client.Concurrency = drv.options.Concurrency
-	drv.client.MaxRetries = drv.options.MaxRetries
-	drv.client.Backoff = drv.options.Backoff
 
 	return drv
 }
 
 func newHTTPClient(options *Options) (httpClient *pester.Client) {
 	httpClient = pester.New()
+
+	httpClient.Backoff = options.Backoff
+	httpClient.Concurrency = options.Concurrency
+	httpClient.MaxRetries = options.MaxRetries
+	httpClient.Timeout = options.Timeout
 
 	if options.HTTPTransport != nil {
 		httpClient.Transport = options.HTTPTransport
