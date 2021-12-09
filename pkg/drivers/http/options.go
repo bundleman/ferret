@@ -44,6 +44,7 @@ func NewOptions(setters []Option) *Options {
 	opts.Concurrency = DefaultConcurrency
 	opts.MaxRetries = DefaultMaxRetries
 	opts.HTTPCodesFilter = make([]compiledStatusCodeFilter, 0, 5)
+	opts.Timeout = DefaultTimeout
 
 	for _, setter := range setters {
 		setter(opts)
@@ -148,11 +149,14 @@ func WithCustomTransport(transport *stdhttp.Transport) Option {
 	}
 }
 
-func WithTimeout(duration time.Duration) Option {
-	return func(opts *Options) {
-		opts.Timeout = duration
 func WithBodyLimit(limit int64) Option {
 	return func(opts *Options) {
 		opts.BodyLimit = limit
+	}
+}
+
+func WithTimeout(duration time.Duration) Option {
+	return func(opts *Options) {
+		opts.Timeout = duration
 	}
 }
