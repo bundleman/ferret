@@ -2,6 +2,7 @@ package http
 
 import (
 	stdhttp "net/http"
+	"time"
 
 	"github.com/gobwas/glob"
 	"github.com/sethgrid/pester"
@@ -12,6 +13,7 @@ import (
 var (
 	DefaultConcurrency = 1
 	DefaultMaxRetries  = 5
+	DefaultTimeout     = time.Second * 30
 )
 
 type (
@@ -29,6 +31,7 @@ type (
 		Concurrency     int
 		HTTPCodesFilter []compiledStatusCodeFilter
 		HTTPTransport   *stdhttp.Transport
+		Timeout         time.Duration
 		BodyLimit       int64
 	}
 )
@@ -145,6 +148,9 @@ func WithCustomTransport(transport *stdhttp.Transport) Option {
 	}
 }
 
+func WithTimeout(duration time.Duration) Option {
+	return func(opts *Options) {
+		opts.Timeout = duration
 func WithBodyLimit(limit int64) Option {
 	return func(opts *Options) {
 		opts.BodyLimit = limit
