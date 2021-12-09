@@ -57,8 +57,6 @@ func newHTTPClient(options *Options) (httpClient *pester.Client) {
 		return
 	}
 
-	httpClient = pester.NewExtendedClient(&http.Client{Transport: httpClient.Transport})
-
 	return
 }
 
