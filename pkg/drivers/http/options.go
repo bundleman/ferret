@@ -2,6 +2,7 @@ package http
 
 import (
 	stdhttp "net/http"
+	"time"
 
 	"github.com/gobwas/glob"
 	"github.com/sethgrid/pester"
@@ -12,6 +13,7 @@ import (
 var (
 	DefaultConcurrency = 1
 	DefaultMaxRetries  = 5
+	DefaultTimeout     = time.Second * 30
 )
 
 type (
@@ -27,9 +29,10 @@ type (
 		Backoff         pester.BackoffStrategy
 		MaxRetries      int
 		Concurrency     int
+		BodyLimit       int64
 		HTTPCodesFilter []compiledStatusCodeFilter
 		HTTPTransport   *stdhttp.Transport
-		BodyLimit       int64
+		Timeout         time.Duration
 	}
 )
 
@@ -40,6 +43,7 @@ func NewOptions(setters []Option) *Options {
 	opts.Backoff = pester.ExponentialBackoff
 	opts.Concurrency = DefaultConcurrency
 	opts.MaxRetries = DefaultMaxRetries
+	opts.Timeout = DefaultTimeout
 	opts.HTTPCodesFilter = make([]compiledStatusCodeFilter, 0, 5)
 
 	for _, setter := range setters {
@@ -148,5 +152,11 @@ func WithCustomTransport(transport *stdhttp.Transport) Option {
 func WithBodyLimit(limit int64) Option {
 	return func(opts *Options) {
 		opts.BodyLimit = limit
+	}
+}
+
+func WithTimeout(duration time.Duration) Option {
+	return func(opts *Options) {
+		opts.Timeout = duration
 	}
 }

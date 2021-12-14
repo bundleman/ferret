@@ -31,6 +31,7 @@ func TestNewOptions(t *testing.T) {
 		expectedConcurrency := 10
 		expectedTransport := &stdhttp.Transport{}
 		expectedBodyLimit := 3145728
+		expectedTimeout := time.Second * 5
 
 		opts := http.NewOptions([]http.Option{
 			http.WithCustomName(expectedName),
@@ -71,6 +72,7 @@ func TestNewOptions(t *testing.T) {
 			http.WithAllowedHTTPCodes([]int{403, 404}),
 			http.WithCustomTransport(expectedTransport),
 			http.WithBodyLimit(3145728),
+			http.WithTimeout(time.Second * 5),
 		})
 		So(opts.Options, ShouldNotBeNil)
 		So(opts.Name, ShouldEqual, expectedName)
@@ -84,6 +86,7 @@ func TestNewOptions(t *testing.T) {
 		So(opts.HTTPCodesFilter, ShouldHaveLength, 3)
 		So(opts.HTTPTransport, ShouldEqual, expectedTransport)
 		So(opts.BodyLimit, ShouldEqual, expectedBodyLimit)
+		So(opts.Timeout, ShouldEqual, expectedTimeout)
 
 	})
 }

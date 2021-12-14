@@ -2,8 +2,8 @@ package http
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
-	"github.com/MontFerret/ferret/pkg/drivers"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -11,9 +11,11 @@ import (
 	"testing"
 	"unsafe"
 
+	"github.com/jarcoal/httpmock"
+	. "github.com/smartystreets/goconvey/convey"
 	"golang.org/x/text/encoding/charmap"
 
-	"github.com/smartystreets/goconvey/convey"
+	"github.com/MontFerret/ferret/pkg/drivers"
 )
 
 func Test_newHTTPClientWithTransport(t *testing.T) {
@@ -37,19 +39,10 @@ func Test_newHTTPClientWithTransport(t *testing.T) {
 				HTTPTransport: httpTransport,
 			}},
 		},
-		{
-			name: "check transport exist with pester.NewExtendedClient()",
-			args: args{options: &Options{
-				Options: &drivers.Options{
-					Proxy: "http://0.0.0.0",
-				},
-				HTTPTransport: httpTransport,
-			}},
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			convey.Convey(tt.name, t, func() {
+			Convey(tt.name, t, func() {
 				var (
 					transport *http.Transport
 					client    = newHTTPClient(tt.args.options)
@@ -68,7 +61,7 @@ func Test_newHTTPClientWithTransport(t *testing.T) {
 
 				verify := transport.TLSClientConfig.InsecureSkipVerify
 
-				convey.So(verify, convey.ShouldBeTrue)
+				So(verify, ShouldBeTrue)
 			})
 		})
 	}
@@ -76,7 +69,7 @@ func Test_newHTTPClientWithTransport(t *testing.T) {
 
 func Test_newHTTPClient(t *testing.T) {
 
-	convey.Convey("pester.New()", t, func() {
+	Convey("pester.New()", t, func() {
 		var (
 			client = newHTTPClient(&Options{
 				Options: &drivers.Options{
@@ -91,25 +84,7 @@ func Test_newHTTPClient(t *testing.T) {
 		rField = reflect.NewAt(rField.Type(), unsafe.Pointer(rField.UnsafeAddr())).Elem()
 		hc := rField.Interface().(*http.Client)
 
-		convey.So(hc, convey.ShouldBeNil)
-	})
-
-	convey.Convey("pester.NewExtend()", t, func() {
-		var (
-			client = newHTTPClient(&Options{
-				Options: &drivers.Options{
-					Proxy: "http://0.0.0.0",
-				},
-			})
-
-			rValue = reflect.ValueOf(client).Elem()
-			rField = rValue.Field(0)
-		)
-
-		rField = reflect.NewAt(rField.Type(), unsafe.Pointer(rField.UnsafeAddr())).Elem()
-		hc := rField.Interface().(*http.Client)
-
-		convey.So(hc, convey.ShouldNotBeNil)
+		So(hc, ShouldBeNil)
 	})
 }
 
@@ -139,7 +114,7 @@ func TestDriver_convertToUTF8(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			drv := &Driver{}
 
-			convey.Convey(tt.name, t, func() {
+			Convey(tt.name, t, func() {
 
 				data, err := ioutil.ReadAll(bytes.NewBufferString(tt.args.inputData))
 				if err != nil {
@@ -157,15 +132,35 @@ func TestDriver_convertToUTF8(t *testing.T) {
 				encodedData = encodedData[:nDst]
 
 				gotData, err := drv.convertToUTF8(bytes.NewReader(encodedData), tt.args.srcCharset)
-				convey.So(err, convey.ShouldBeNil)
+				So(err, ShouldBeNil)
 
 				outData, err := ioutil.ReadAll(gotData)
-				convey.So(err, convey.ShouldBeNil)
+				So(err, ShouldBeNil)
 
-				convey.So(string(outData), convey.ShouldEqual, tt.expected)
+				So(string(outData), ShouldEqual, tt.expected)
 
 			})
 
 		})
 	}
+}
+
+func TestDriver_Concurrency(t *testing.T) {
+	Convey("Should make only 1 request", t, func() {
+		httpmock.Activate()
+		defer httpmock.DeactivateAndReset()
+
+		httpmock.RegisterResponder("GET", "http://localhost:1111",
+			httpmock.NewStringResponder(200, `<!DOCTYPE html><html><head></head><body></body></html>`))
+
+		drv := NewDriver()
+
+		page, err := drv.Open(context.Background(), drivers.Params{
+			URL: "http://localhost:1111",
+		})
+
+		So(err, ShouldBeNil)
+		So(page, ShouldNotBeNil)
+		So(httpmock.GetTotalCallCount(), ShouldEqual, 1)
+	})
 }

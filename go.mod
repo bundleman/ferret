@@ -10,6 +10,7 @@ require (
 	github.com/corpix/uarand v0.1.1
 	github.com/gobwas/glob v0.2.3
 	github.com/gorilla/css v1.0.0
+	github.com/jarcoal/httpmock v1.0.8
 	github.com/mafredri/cdp v0.31.1-0.20210518091851-fd8f409763f9
 	github.com/pkg/errors v0.9.1
 	github.com/rs/zerolog v1.21.0
