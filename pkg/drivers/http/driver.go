@@ -215,10 +215,10 @@ func (drv *Driver) convertToUTF8(reader io.Reader, srcCharset string) (data io.R
 func (drv *Driver) makeRequest(ctx context.Context, req *http.Request, params drivers.Params) {
 	logger := logging.FromContext(ctx)
 
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8")
-	req.Header.Set("Accept-Language", "en-US,en;q=0.9,ru;q=0.8")
-	req.Header.Set("Cache-Control", "no-cache")
-	req.Header.Set("Pragma", "no-cache")
+	req.Header.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8")
+	req.Header.Add("Accept-Language", "en-US,en;q=0.9,ru;q=0.8")
+	req.Header.Add("Cache-Control", "no-cache")
+	req.Header.Add("Pragma", "no-cache")
 
 	if params.Headers != nil {
 		params.Headers.ForEach(func(value []string, key string) bool {
