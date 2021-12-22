@@ -2,10 +2,9 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"runtime"
 	"strings"
-
-	"github.com/pkg/errors"
 
 	"github.com/MontFerret/ferret/pkg/runtime/core"
 	"github.com/MontFerret/ferret/pkg/runtime/logging"
@@ -123,6 +122,7 @@ func (p *Program) validateParams(opts *Options) error {
 	var missedParams []string
 
 	for n := range p.params {
+		opts.mxParam.RLock()
 		_, exists := opts.params[n]
 
 		if !exists {
@@ -132,6 +132,8 @@ func (p *Program) validateParams(opts *Options) error {
 
 			missedParams = append(missedParams, "@"+n)
 		}
+
+		opts.mxParam.RUnlock()
 	}
 
 	if len(missedParams) > 0 {

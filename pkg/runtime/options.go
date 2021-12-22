@@ -13,7 +13,7 @@ import (
 
 type (
 	Options struct {
-		mxParam *sync.Map
+		mxParam sync.RWMutex
 		params  map[string]core.Value
 
 		logging logging.Options
@@ -24,8 +24,7 @@ type (
 
 func NewOptions(setters []Option) *Options {
 	opts := &Options{
-		mxParam: &sync.Map{},
-		params:  make(map[string]core.Value),
+		params: make(map[string]core.Value),
 		logging: logging.Options{
 			Writer: os.Stdout,
 			Level:  logging.ErrorLevel,
@@ -41,14 +40,19 @@ func NewOptions(setters []Option) *Options {
 
 func WithParam(name string, value interface{}) Option {
 	return func(options *Options) {
-		options.mxParam.Store(name, values.Parse(value))
+		options.mxParam.Lock()
+		defer options.mxParam.Unlock()
+
+		options.params[name] = values.Parse(value)
 	}
 }
 
 func WithParams(params map[string]interface{}) Option {
 	return func(options *Options) {
 		for name, value := range params {
-			options.mxParam.Store(name, values.Parse(value))
+			options.mxParam.Lock()
+			options.params[name] = values.Parse(value)
+			options.mxParam.Unlock()
 		}
 	}
 }
