@@ -14,8 +14,8 @@ import (
 type (
 	Options struct {
 		params  map[string]core.Value
-		logging logging.Options
 		mxParam *sync.Map
+		logging logging.Options
 	}
 
 	Option func(*Options)
@@ -23,12 +23,12 @@ type (
 
 func NewOptions(setters []Option) *Options {
 	opts := &Options{
-		params: make(map[string]core.Value),
+		params:  make(map[string]core.Value),
+		mxParam: &sync.Map{},
 		logging: logging.Options{
 			Writer: os.Stdout,
 			Level:  logging.ErrorLevel,
 		},
-		mxParam: &sync.Map{},
 	}
 
 	for _, setter := range setters {
