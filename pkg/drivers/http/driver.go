@@ -227,7 +227,7 @@ func (drv *Driver) makeRequest(ctx context.Context, req *http.Request, params dr
 			req.Header.Set(key, v)
 
 			logger.
-				Debug().
+				Trace().
 				Timestamp().
 				Str("header", key).
 				Msg("set header")
@@ -246,7 +246,7 @@ func (drv *Driver) makeRequest(ctx context.Context, req *http.Request, params dr
 			req.AddCookie(fromDriverCookie(v))
 
 			logger.
-				Debug().
+				Trace().
 				Timestamp().
 				Str("cookie", key.String()).
 				Msg("set cookie")
@@ -257,7 +257,7 @@ func (drv *Driver) makeRequest(ctx context.Context, req *http.Request, params dr
 
 	ua := common.GetUserAgent(params.UserAgent)
 	logger.
-		Debug().
+		Trace().
 		Timestamp().
 		Str("user-agent", ua).
 		Msg("using User-Agent")
