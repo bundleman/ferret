@@ -2,9 +2,10 @@ package runtime
 
 import (
 	"context"
-	"errors"
 	"runtime"
 	"strings"
+
+	"github.com/pkg/errors"
 
 	"github.com/MontFerret/ferret/pkg/runtime/core"
 	"github.com/MontFerret/ferret/pkg/runtime/logging"

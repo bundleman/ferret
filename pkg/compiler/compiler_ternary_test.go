@@ -13,7 +13,7 @@ func TestTernaryOperator(t *testing.T) {
 		c := compiler.New()
 		p, err := c.Compile(`
 			FOR i IN [1, 2, 3, 4, 5, 6]
-				RETURN i < 3 ? i * 3 : i * 2;
+				RETURN i < 3 ? i * 3 : i * 2
 		`)
 
 		So(err, ShouldBeNil)
@@ -82,6 +82,20 @@ func TestTernaryOperator(t *testing.T) {
 
 			So(string(out), ShouldEqual, `["no value",2,4,6]`)
 		}
+	})
+
+	Convey("Multi expression", t, func() {
+		out := compiler.New().MustCompile(`
+			RETURN 0 && true ? "1" : "some"
+		`).MustRun(context.Background())
+
+		So(string(out), ShouldEqual, `"some"`)
+
+		out = compiler.New().MustCompile(`
+			RETURN length([]) > 0 && true ? "1" : "some"
+		`).MustRun(context.Background())
+
+		So(string(out), ShouldEqual, `"some"`)
 	})
 }
 
