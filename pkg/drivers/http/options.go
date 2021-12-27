@@ -29,10 +29,10 @@ type (
 		Backoff         pester.BackoffStrategy
 		MaxRetries      int
 		Concurrency     int
+		BodyLimit       int64
 		HTTPCodesFilter []compiledStatusCodeFilter
 		HTTPTransport   *stdhttp.Transport
 		Timeout         time.Duration
-		BodyLimit       int64
 	}
 )
 
@@ -43,8 +43,8 @@ func NewOptions(setters []Option) *Options {
 	opts.Backoff = pester.ExponentialBackoff
 	opts.Concurrency = DefaultConcurrency
 	opts.MaxRetries = DefaultMaxRetries
-	opts.HTTPCodesFilter = make([]compiledStatusCodeFilter, 0, 5)
 	opts.Timeout = DefaultTimeout
+	opts.HTTPCodesFilter = make([]compiledStatusCodeFilter, 0, 5)
 
 	for _, setter := range setters {
 		setter(opts)

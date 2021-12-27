@@ -40,9 +40,9 @@ func NewDriver(opts ...Option) *Driver {
 func newHTTPClient(options *Options) (httpClient *pester.Client) {
 	httpClient = pester.New()
 
-	httpClient.Backoff = options.Backoff
 	httpClient.Concurrency = options.Concurrency
 	httpClient.MaxRetries = options.MaxRetries
+	httpClient.Backoff = options.Backoff
 	httpClient.Timeout = options.Timeout
 
 	if options.HTTPTransport != nil {
