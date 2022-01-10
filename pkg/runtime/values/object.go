@@ -22,7 +22,7 @@ type (
 	}
 
 	Object struct {
-		MapMX sync.Mutex
+		MapMX sync.RWMutex
 		value map[string]core.Value
 	}
 )
