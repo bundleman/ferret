@@ -13,7 +13,7 @@ import (
 
 type (
 	Options struct {
-		mxParam sync.RWMutex
+		mxParam *sync.RWMutex
 		params  map[string]core.Value
 
 		logging logging.Options
@@ -29,6 +29,7 @@ func NewOptions(setters []Option) *Options {
 			Writer: os.Stdout,
 			Level:  logging.ErrorLevel,
 		},
+		mxParam: &sync.RWMutex{},
 	}
 
 	for _, setter := range setters {
