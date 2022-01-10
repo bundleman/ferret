@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 	"os"
-	"sync"
 
 	"github.com/MontFerret/ferret/pkg/runtime/core"
 	"github.com/MontFerret/ferret/pkg/runtime/logging"
@@ -13,9 +12,7 @@ import (
 
 type (
 	Options struct {
-		mxParam *sync.RWMutex
 		params  map[string]core.Value
-
 		logging logging.Options
 	}
 
@@ -29,7 +26,6 @@ func NewOptions(setters []Option) *Options {
 			Writer: os.Stdout,
 			Level:  logging.ErrorLevel,
 		},
-		mxParam: &sync.RWMutex{},
 	}
 
 	for _, setter := range setters {
@@ -41,9 +37,6 @@ func NewOptions(setters []Option) *Options {
 
 func WithParam(name string, value interface{}) Option {
 	return func(options *Options) {
-		options.mxParam.Lock()
-		defer options.mxParam.Unlock()
-
 		options.params[name] = values.Parse(value)
 	}
 }
@@ -51,9 +44,7 @@ func WithParam(name string, value interface{}) Option {
 func WithParams(params map[string]interface{}) Option {
 	return func(options *Options) {
 		for name, value := range params {
-			options.mxParam.Lock()
 			options.params[name] = values.Parse(value)
-			options.mxParam.Unlock()
 		}
 	}
 }

@@ -123,7 +123,6 @@ func (p *Program) validateParams(opts *Options) error {
 	var missedParams []string
 
 	for n := range p.params {
-		opts.mxParam.RLock()
 		_, exists := opts.params[n]
 
 		if !exists {
@@ -133,8 +132,6 @@ func (p *Program) validateParams(opts *Options) error {
 
 			missedParams = append(missedParams, "@"+n)
 		}
-
-		opts.mxParam.RUnlock()
 	}
 
 	if len(missedParams) > 0 {
