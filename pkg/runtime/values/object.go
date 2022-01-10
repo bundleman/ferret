@@ -22,7 +22,7 @@ type (
 	}
 
 	Object struct {
-		MapMX sync.Mutex
+		mapMX sync.Map
 		value map[string]core.Value
 	}
 )
@@ -266,13 +266,11 @@ func (t *Object) Get(key String) (core.Value, Boolean) {
 }
 
 func (t *Object) Set(key String, value core.Value) {
-	t.MapMX.Lock()
 	if value != nil {
-		t.value[string(key)] = value
+		t.mapMX.Store(string(key), value)
 	} else {
-		t.value[string(key)] = None
+		t.mapMX.Store(string(key), None)
 	}
-	t.MapMX.Unlock()
 }
 
 func (t *Object) Remove(key String) {
