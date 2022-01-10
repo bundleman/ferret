@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"hash/fnv"
 	"sort"
+	"sync"
 
 	"github.com/wI2L/jettison"
 
@@ -21,6 +22,7 @@ type (
 	}
 
 	Object struct {
+		MapMX sync.Mutex
 		value map[string]core.Value
 	}
 )
@@ -30,7 +32,7 @@ func NewObjectProperty(name string, value core.Value) *ObjectProperty {
 }
 
 func NewObject() *Object {
-	return &Object{make(map[string]core.Value)}
+	return &Object{value: make(map[string]core.Value)}
 }
 
 func NewObjectWith(props ...*ObjectProperty) *Object {
@@ -264,11 +266,13 @@ func (t *Object) Get(key String) (core.Value, Boolean) {
 }
 
 func (t *Object) Set(key String, value core.Value) {
+	t.MapMX.Lock()
 	if value != nil {
 		t.value[string(key)] = value
 	} else {
 		t.value[string(key)] = None
 	}
+	t.MapMX.Unlock()
 }
 
 func (t *Object) Remove(key String) {
