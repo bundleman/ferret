@@ -88,6 +88,7 @@ func LoadHTMLPage(
 	}
 
 	netManager, err := net.New(
+		ctx,
 		logger,
 		client,
 		netOpts,
