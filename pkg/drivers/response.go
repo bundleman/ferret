@@ -120,6 +120,10 @@ func (resp *HTTPResponse) GetIn(ctx context.Context, path []core.Value) (core.Va
 	case "responseTime":
 		return values.NewFloat(resp.ResponseTime), nil
 	case "cookies":
+		if len(path) == 1 {
+			return resp.Cookies, nil
+		}
+
 		res := NewHTTPCookies()
 
 		if resp.Cookies != nil {
