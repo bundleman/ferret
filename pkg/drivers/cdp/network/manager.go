@@ -498,7 +498,6 @@ func (m *Manager) WaitForNavigation(ctx context.Context, opts WaitEventOptions) 
 	defer cancel()
 
 	stream, err := m.OnNavigation(ctx)
-
 	if err != nil {
 		return err
 	}
@@ -507,10 +506,12 @@ func (m *Manager) WaitForNavigation(ctx context.Context, opts WaitEventOptions) 
 
 	for evt := range stream.Read(ctx) {
 		if err := ctx.Err(); err != nil {
+			cancel()
 			return err
 		}
 
 		if err := evt.Err(); err != nil {
+			cancel()
 			return nil
 		}
 

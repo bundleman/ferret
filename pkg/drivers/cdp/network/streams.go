@@ -65,6 +65,10 @@ func (s *NavigationEventStream) Read(ctx context.Context) <-chan rtEvents.Messag
 					return
 				}
 
+				if repl == nil {
+					return
+				}
+
 				evt := NavigationEvent{
 					URL:     repl.URL,
 					FrameID: repl.FrameID,
@@ -86,11 +90,14 @@ func (s *NavigationEventStream) Read(ctx context.Context) <-chan rtEvents.Messag
 				}
 
 				repl, err := s.onFrame.Recv()
-
 				if err != nil {
 					ch <- rtEvents.WithErr(err)
 					s.logger.Trace().Err(err).Msg("failed to read data from frame navigation event stream")
 
+					return
+				}
+
+				if repl == nil {
 					return
 				}
 
