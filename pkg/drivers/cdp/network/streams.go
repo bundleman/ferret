@@ -45,7 +45,6 @@ func newNavigationEventStream(
 func (s *NavigationEventStream) Read(ctx context.Context) <-chan rtEvents.Message {
 	ch := make(chan rtEvents.Message)
 
-	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		defer close(ch)
 
@@ -55,7 +54,7 @@ func (s *NavigationEventStream) Read(ctx context.Context) <-chan rtEvents.Messag
 				return
 			case <-s.onDoc.Ready():
 				if ctx.Err() != nil {
-					cancel()
+					return
 				}
 
 				repl, err := s.onDoc.Recv()
@@ -63,7 +62,7 @@ func (s *NavigationEventStream) Read(ctx context.Context) <-chan rtEvents.Messag
 					ch <- rtEvents.WithErr(err)
 					s.logger.Trace().Err(err).Msg("failed to read data from within document navigation event stream")
 
-					cancel()
+					return
 				}
 
 				evt := NavigationEvent{
@@ -80,11 +79,10 @@ func (s *NavigationEventStream) Read(ctx context.Context) <-chan rtEvents.Messag
 				s.tail.Store(evt)
 
 				ch <- rtEvents.WithValue(&evt)
-				cancel()
 
 			case <-s.onFrame.Ready():
 				if ctx.Err() != nil {
-					cancel()
+					return
 				}
 
 				repl, err := s.onFrame.Recv()
@@ -93,7 +91,7 @@ func (s *NavigationEventStream) Read(ctx context.Context) <-chan rtEvents.Messag
 					ch <- rtEvents.WithErr(err)
 					s.logger.Trace().Err(err).Msg("failed to read data from frame navigation event stream")
 
-					cancel()
+					return
 				}
 
 				evt := NavigationEvent{
@@ -111,7 +109,6 @@ func (s *NavigationEventStream) Read(ctx context.Context) <-chan rtEvents.Messag
 				s.tail.Store(evt)
 
 				ch <- rtEvents.WithValue(&evt)
-				cancel()
 			}
 		}
 	}()

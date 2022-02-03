@@ -520,6 +520,8 @@ func (m *Manager) WaitForNavigation(ctx context.Context, opts WaitEventOptions) 
 			continue
 		}
 
+		cancel()
+
 		return nil
 	}
 
