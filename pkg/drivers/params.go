@@ -36,6 +36,7 @@ type (
 		Charset           string
 		Ignore            *Ignore
 		SimpleHTTPRequest *SimpleHTTPRequest
+		MaxRedirectsLimit uint8
 	}
 
 	SimpleHTTPRequest struct {

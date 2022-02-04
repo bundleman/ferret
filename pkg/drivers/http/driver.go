@@ -61,6 +61,10 @@ func newHTTPClient(options *Options) (httpClient *pester.Client) {
 		return
 	}
 
+	if options.MaxRedirectsLimit > 0 {
+		httpClient.CheckRedirect = checkRedirect(options.MaxRedirectsLimit)
+	}
+
 	return
 }
 
@@ -92,6 +96,10 @@ func (drv *Driver) Name() string {
 }
 
 func (drv *Driver) Open(ctx context.Context, params drivers.Params) (drivers.HTMLPage, error) {
+	if params.MaxRedirectsLimit > 0 {
+		drv.client.CheckRedirect = checkRedirect(params.MaxRedirectsLimit)
+	}
+
 	req, err := http.NewRequest(http.MethodGet, params.URL, nil)
 	if err != nil {
 		return nil, err
@@ -364,4 +372,22 @@ func (drv *Driver) makeRequest(ctx context.Context, req *http.Request, params dr
 	}
 
 	req = req.WithContext(ctx)
+}
+
+func checkRedirect(maxRedirectsLimit uint8) func(req *http.Request, via []*http.Request) error {
+	limit := maxRedirectsLimit
+	return func(req *http.Request, via []*http.Request) error {
+		if uint8(len(via)) > limit {
+			return http.ErrUseLastResponse
+		}
+		if len(via) == 0 {
+			return nil
+		}
+
+		for key, val := range via[0].Header {
+			req.Header[key] = val
+		}
+
+		return nil
+	}
 }
