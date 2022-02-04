@@ -26,13 +26,14 @@ type (
 
 	Options struct {
 		*drivers.Options
-		Backoff         pester.BackoffStrategy
-		MaxRetries      int
-		Concurrency     int
-		BodyLimit       int64
-		HTTPCodesFilter []compiledStatusCodeFilter
-		HTTPTransport   *stdhttp.Transport
-		Timeout         time.Duration
+		Backoff           pester.BackoffStrategy
+		MaxRetries        int
+		Concurrency       int
+		BodyLimit         int64
+		HTTPCodesFilter   []compiledStatusCodeFilter
+		HTTPTransport     *stdhttp.Transport
+		Timeout           time.Duration
+		MaxRedirectsLimit uint8
 	}
 )
 
@@ -158,5 +159,11 @@ func WithBodyLimit(limit int64) Option {
 func WithTimeout(duration time.Duration) Option {
 	return func(opts *Options) {
 		opts.Timeout = duration
+	}
+}
+
+func WithCheckRedirect(limit uint8) Option {
+	return func(opts *Options) {
+		opts.MaxRedirectsLimit = limit
 	}
 }

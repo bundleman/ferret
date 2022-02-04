@@ -243,6 +243,11 @@ func newPageLoadParams(url values.String, arg core.Value) (PageLoadParams, error
 			res.SimpleHTTPRequest = simpleRequest
 		}
 
+		maxRedirectsLimit, exists := obj.Get("maxRedirectsLimit")
+		if exists {
+			res.MaxRedirectsLimit = uint8(values.ToInt(maxRedirectsLimit))
+		}
+
 	case types.String:
 		res.Driver = arg.(values.String).String()
 	case types.Boolean:
