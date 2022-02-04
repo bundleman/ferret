@@ -494,24 +494,21 @@ func (m *Manager) NavigateBack(ctx context.Context, skip values.Int) (values.Boo
 }
 
 func (m *Manager) WaitForNavigation(ctx context.Context, opts WaitEventOptions) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
 	stream, err := m.OnNavigation(ctx)
 	if err != nil {
 		return err
 	}
-
 	defer stream.Close(ctx)
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	for evt := range stream.Read(ctx) {
 		if err := ctx.Err(); err != nil {
-			cancel()
 			return err
 		}
 
 		if err := evt.Err(); err != nil {
-			cancel()
 			return nil
 		}
 
@@ -520,8 +517,6 @@ func (m *Manager) WaitForNavigation(ctx context.Context, opts WaitEventOptions) 
 		if !isFrameMatched(nav.FrameID, opts.FrameID) || !isURLMatched(nav.URL, opts.URL) {
 			continue
 		}
-
-		cancel()
 
 		return nil
 	}
