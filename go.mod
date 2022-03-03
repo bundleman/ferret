@@ -6,7 +6,8 @@ require (
 	github.com/PuerkitoBio/goquery v1.7.1
 	github.com/antchfx/htmlquery v1.2.3
 	github.com/antchfx/xpath v1.2.0
-	github.com/antlr/antlr4 v0.0.0-20210503161921-88ad58426b90
+	github.com/antlr/antlr4 v0.0.0-20211014165551-23f93e0d1b42
+	github.com/antlr/antlr4/runtime/Go/antlr v0.0.0-20220209173558-ad29539cd2e9
 	github.com/corpix/uarand v0.1.1
 	github.com/gobwas/glob v0.2.3
 	github.com/gorilla/css v1.0.0
