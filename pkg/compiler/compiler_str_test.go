@@ -4,9 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"testing"
+
 	"github.com/MontFerret/ferret/pkg/compiler"
 	. "github.com/smartystreets/goconvey/convey"
-	"testing"
 )
 
 func TestString(t *testing.T) {

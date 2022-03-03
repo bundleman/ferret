@@ -2,8 +2,9 @@ package expressions_test
 
 import (
 	"context"
-	"github.com/MontFerret/ferret/pkg/runtime/collections"
 	"testing"
+
+	"github.com/MontFerret/ferret/pkg/runtime/collections"
 
 	"github.com/MontFerret/ferret/pkg/runtime/core"
 	"github.com/MontFerret/ferret/pkg/runtime/expressions"

@@ -2,9 +2,10 @@ package input
 
 import (
 	"context"
+	"time"
+
 	"github.com/MontFerret/ferret/pkg/runtime/logging"
 	"github.com/rs/zerolog"
-	"time"
 
 	"github.com/mafredri/cdp"
 	"github.com/mafredri/cdp/protocol/dom"

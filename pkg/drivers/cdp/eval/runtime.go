@@ -2,6 +2,7 @@ package eval
 
 import (
 	"context"
+
 	"github.com/MontFerret/ferret/pkg/runtime/logging"
 	"github.com/rs/zerolog"
 

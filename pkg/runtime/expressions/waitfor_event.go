@@ -2,9 +2,10 @@ package expressions
 
 import (
 	"context"
+	"time"
+
 	"github.com/MontFerret/ferret/pkg/runtime/events"
 	"github.com/MontFerret/ferret/pkg/runtime/values/types"
-	"time"
 
 	"github.com/pkg/errors"
 

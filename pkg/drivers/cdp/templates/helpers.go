@@ -2,8 +2,9 @@ package templates
 
 import (
 	"bytes"
-	"github.com/MontFerret/ferret/pkg/drivers"
 	"strconv"
+
+	"github.com/MontFerret/ferret/pkg/drivers"
 
 	"github.com/MontFerret/ferret/pkg/runtime/core"
 	"github.com/MontFerret/ferret/pkg/runtime/values"

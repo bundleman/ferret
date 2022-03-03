@@ -3,9 +3,10 @@ package dom
 import (
 	"bytes"
 	"context"
-	"github.com/rs/zerolog"
 	"regexp"
 	"strings"
+
+	"github.com/rs/zerolog"
 
 	"github.com/mafredri/cdp"
 	"github.com/mafredri/cdp/protocol/dom"

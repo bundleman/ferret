@@ -2,14 +2,15 @@ package compiler_test
 
 import (
 	"context"
+	"testing"
+	"time"
+
 	"github.com/MontFerret/ferret/pkg/compiler"
 	"github.com/MontFerret/ferret/pkg/runtime"
 	"github.com/MontFerret/ferret/pkg/runtime/core"
 	"github.com/MontFerret/ferret/pkg/runtime/events"
 	"github.com/MontFerret/ferret/pkg/runtime/values"
 	. "github.com/smartystreets/goconvey/convey"
-	"testing"
-	"time"
 )
 
 type MockedObservable struct {

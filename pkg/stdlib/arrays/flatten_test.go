@@ -2,10 +2,11 @@ package arrays_test
 
 import (
 	"context"
+	"testing"
+
 	"github.com/MontFerret/ferret/pkg/runtime/values"
 	"github.com/MontFerret/ferret/pkg/stdlib/arrays"
 	. "github.com/smartystreets/goconvey/convey"
-	"testing"
 )
 
 func TestFlatten(t *testing.T) {

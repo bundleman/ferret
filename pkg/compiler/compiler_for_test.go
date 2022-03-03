@@ -3,11 +3,12 @@ package compiler_test
 import (
 	"context"
 	"encoding/json"
+	"sort"
+	"testing"
+
 	"github.com/MontFerret/ferret/pkg/compiler"
 	"github.com/MontFerret/ferret/pkg/runtime"
 	. "github.com/smartystreets/goconvey/convey"
-	"sort"
-	"testing"
 )
 
 func TestFor(t *testing.T) {

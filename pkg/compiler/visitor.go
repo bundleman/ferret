@@ -2,6 +2,10 @@ package compiler
 
 import (
 	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
+
 	"github.com/MontFerret/ferret/pkg/parser/fql"
 	"github.com/MontFerret/ferret/pkg/runtime"
 	"github.com/MontFerret/ferret/pkg/runtime/collections"
@@ -13,9 +17,6 @@ import (
 	"github.com/MontFerret/ferret/pkg/runtime/values"
 	"github.com/antlr/antlr4/runtime/Go/antlr"
 	"github.com/pkg/errors"
-	"regexp"
-	"strconv"
-	"strings"
 )
 
 type (

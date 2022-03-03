@@ -1,10 +1,11 @@
 package operators_test
 
 import (
+	"testing"
+
 	"github.com/MontFerret/ferret/pkg/runtime/core"
 	"github.com/MontFerret/ferret/pkg/runtime/expressions/operators"
 	"github.com/MontFerret/ferret/pkg/runtime/values"
-	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
 )

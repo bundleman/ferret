@@ -2,9 +2,10 @@ package events
 
 import (
 	"context"
-	"github.com/MontFerret/ferret/pkg/runtime/core"
 	"math/rand"
 	"sync"
+
+	"github.com/MontFerret/ferret/pkg/runtime/core"
 )
 
 type Loop struct {

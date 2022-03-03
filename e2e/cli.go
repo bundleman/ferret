@@ -6,12 +6,13 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/rs/zerolog"
 	"io/ioutil"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
+
+	"github.com/rs/zerolog"
 
 	"github.com/MontFerret/ferret"
 	"github.com/MontFerret/ferret/pkg/drivers/cdp"

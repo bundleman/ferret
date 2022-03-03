@@ -2,10 +2,11 @@ package compiler_test
 
 import (
 	"context"
+	"testing"
+
 	"github.com/MontFerret/ferret/pkg/compiler"
 	"github.com/MontFerret/ferret/pkg/runtime"
 	. "github.com/smartystreets/goconvey/convey"
-	"testing"
 )
 
 func TestParam(t *testing.T) {

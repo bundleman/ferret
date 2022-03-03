@@ -1,11 +1,12 @@
 package values_test
 
 import (
+	"testing"
+
 	"github.com/MontFerret/ferret/pkg/runtime/core"
 	"github.com/MontFerret/ferret/pkg/runtime/values"
 	"github.com/MontFerret/ferret/pkg/runtime/values/types"
 	. "github.com/smartystreets/goconvey/convey"
-	"testing"
 )
 
 func TestBoolean(t *testing.T) {

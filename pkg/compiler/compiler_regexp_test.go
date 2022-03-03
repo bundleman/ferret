@@ -3,9 +3,10 @@ package compiler_test
 import (
 	"context"
 	"fmt"
+	"testing"
+
 	"github.com/MontFerret/ferret/pkg/runtime/core"
 	"github.com/MontFerret/ferret/pkg/runtime/values"
-	"testing"
 
 	"github.com/MontFerret/ferret/pkg/compiler"
 	. "github.com/smartystreets/goconvey/convey"

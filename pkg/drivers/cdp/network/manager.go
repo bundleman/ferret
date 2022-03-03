@@ -3,9 +3,10 @@ package network
 import (
 	"context"
 	"encoding/json"
-	"github.com/MontFerret/ferret/pkg/runtime/logging"
 	"regexp"
 	"sync"
+
+	"github.com/MontFerret/ferret/pkg/runtime/logging"
 
 	"github.com/mafredri/cdp"
 	"github.com/mafredri/cdp/protocol/fetch"

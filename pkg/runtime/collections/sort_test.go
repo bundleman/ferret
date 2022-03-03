@@ -3,11 +3,12 @@ package collections_test
 import (
 	"context"
 	"encoding/json"
+	"testing"
+
 	"github.com/MontFerret/ferret/pkg/runtime/collections"
 	"github.com/MontFerret/ferret/pkg/runtime/core"
 	"github.com/MontFerret/ferret/pkg/runtime/values"
 	. "github.com/smartystreets/goconvey/convey"
-	"testing"
 )
 
 func toValues(scopes []*core.Scope) []core.Value {

@@ -2,12 +2,13 @@ package expressions_test
 
 import (
 	"context"
+	"testing"
+	"time"
+
 	"github.com/MontFerret/ferret/pkg/runtime/core"
 	"github.com/MontFerret/ferret/pkg/runtime/events"
 	"github.com/MontFerret/ferret/pkg/runtime/expressions"
 	"github.com/MontFerret/ferret/pkg/runtime/expressions/literals"
-	"testing"
-	"time"
 
 	. "github.com/smartystreets/goconvey/convey"
 

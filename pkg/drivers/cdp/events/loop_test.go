@@ -2,14 +2,15 @@ package events_test
 
 import (
 	"context"
+	"sync"
+	"testing"
+	"time"
+
 	"github.com/MontFerret/ferret/pkg/drivers/cdp/events"
 	"github.com/mafredri/cdp/protocol/dom"
 	"github.com/mafredri/cdp/protocol/page"
 	"github.com/mafredri/cdp/rpcc"
 	. "github.com/smartystreets/goconvey/convey"
-	"sync"
-	"testing"
-	"time"
 )
 
 type (

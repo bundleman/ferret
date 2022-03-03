@@ -3,12 +3,13 @@ package http
 import (
 	"bytes"
 	"context"
-	"github.com/MontFerret/ferret/pkg/runtime/logging"
-	"github.com/MontFerret/ferret/pkg/runtime/values"
-	"github.com/gobwas/glob"
 	"io"
 	"net/http"
 	"net/url"
+
+	"github.com/MontFerret/ferret/pkg/runtime/logging"
+	"github.com/MontFerret/ferret/pkg/runtime/values"
+	"github.com/gobwas/glob"
 
 	"golang.org/x/net/html/charset"
 

@@ -2,11 +2,12 @@ package collections_test
 
 import (
 	"context"
+	"testing"
+
 	"github.com/MontFerret/ferret/pkg/runtime/collections"
 	"github.com/MontFerret/ferret/pkg/runtime/core"
 	"github.com/MontFerret/ferret/pkg/runtime/values"
 	. "github.com/smartystreets/goconvey/convey"
-	"testing"
 )
 
 func TestLimit(t *testing.T) {

@@ -1,11 +1,12 @@
 package eval
 
 import (
+	"strings"
+
 	"github.com/MontFerret/ferret/pkg/runtime/core"
 	"github.com/mafredri/cdp/protocol/runtime"
 	"github.com/rs/zerolog"
 	"github.com/wI2L/jettison"
-	"strings"
 )
 
 type (

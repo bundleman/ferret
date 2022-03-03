@@ -1,9 +1,10 @@
 package drivers
 
 import (
+	"strings"
+
 	"github.com/MontFerret/ferret/pkg/runtime/values"
 	"github.com/wI2L/jettison"
-	"strings"
 )
 
 // ScrollBehavior defines the transition animation.

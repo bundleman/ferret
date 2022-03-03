@@ -2,10 +2,11 @@ package types_test
 
 import (
 	"context"
+	"testing"
+
 	"github.com/MontFerret/ferret/pkg/runtime/values"
 	"github.com/MontFerret/ferret/pkg/stdlib/types"
 	. "github.com/smartystreets/goconvey/convey"
-	"testing"
 )
 
 func TestToBool(t *testing.T) {

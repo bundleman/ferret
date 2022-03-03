@@ -2,9 +2,10 @@ package compiler_test
 
 import (
 	"context"
+	"testing"
+
 	"github.com/MontFerret/ferret/pkg/compiler"
 	. "github.com/smartystreets/goconvey/convey"
-	"testing"
 )
 
 func TestLikeOperator(t *testing.T) {
