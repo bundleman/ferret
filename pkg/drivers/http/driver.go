@@ -81,7 +81,10 @@ func addProxy(httpClient *pester.Client, proxyStr string) error {
 	proxy := http.ProxyURL(proxyURL)
 
 	if httpClient.Transport != nil {
-		httpClient.Transport.(*http.Transport).Proxy = proxy
+		transport, isHTTPTransport := httpClient.Transport.(*http.Transport)
+		if isHTTPTransport {
+			transport.Proxy = proxy
+		}
 
 		return nil
 	}
