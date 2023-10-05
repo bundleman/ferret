@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	rt "runtime"
 	"runtime/pprof"
+	"strconv"
 	"strings"
 	"time"
 
@@ -222,7 +223,7 @@ var (
 
 	logLevel = flag.String(
 		"log-level",
-		logging.ErrorLevel.String(),
+		strconv.Itoa(logging.ErrorLevel),
 		"log level",
 	)
 )

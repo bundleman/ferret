@@ -31,7 +31,7 @@ type (
 		Concurrency       int
 		BodyLimit         int64
 		HTTPCodesFilter   []compiledStatusCodeFilter
-		HTTPTransport     *stdhttp.Transport
+		HTTPTransport     stdhttp.RoundTripper
 		Timeout           time.Duration
 		MaxRedirectsLimit uint8
 	}
@@ -144,7 +144,7 @@ func WithAllowedHTTPCodes(httpCodes []int) Option {
 	}
 }
 
-func WithCustomTransport(transport *stdhttp.Transport) Option {
+func WithCustomTransport(transport stdhttp.RoundTripper) Option {
 	return func(opts *Options) {
 		opts.HTTPTransport = transport
 	}
