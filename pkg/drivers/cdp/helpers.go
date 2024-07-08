@@ -5,6 +5,7 @@ import (
 	"github.com/MontFerret/ferret/pkg/runtime/events"
 
 	"github.com/mafredri/cdp"
+	"github.com/mafredri/cdp/protocol/dom"
 	"github.com/mafredri/cdp/protocol/emulation"
 	"github.com/mafredri/cdp/protocol/network"
 	"github.com/mafredri/cdp/protocol/page"
@@ -65,7 +66,7 @@ func enableFeatures(ctx context.Context, client *cdp.Client, params drivers.Para
 		},
 
 		func() error {
-			return client.DOM.Enable(ctx)
+			return client.DOM.Enable(ctx, dom.NewEnableArgs())
 		},
 
 		func() error {
