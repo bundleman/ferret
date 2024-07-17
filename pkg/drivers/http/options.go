@@ -32,6 +32,7 @@ type (
 		HTTPCodesFilter []compiledStatusCodeFilter
 		HTTPTransport   *stdhttp.Transport
 		Timeout         time.Duration
+		BodyLimit       int64
 	}
 )
 
@@ -42,8 +43,8 @@ func NewOptions(setters []Option) *Options {
 	opts.Backoff = pester.ExponentialBackoff
 	opts.Concurrency = DefaultConcurrency
 	opts.MaxRetries = DefaultMaxRetries
-	opts.Timeout = DefaultTimeout
 	opts.HTTPCodesFilter = make([]compiledStatusCodeFilter, 0, 5)
+	opts.Timeout = DefaultTimeout
 
 	for _, setter := range setters {
 		setter(opts)
@@ -145,6 +146,12 @@ func WithAllowedHTTPCodes(httpCodes []int) Option {
 func WithCustomTransport(transport *stdhttp.Transport) Option {
 	return func(opts *Options) {
 		opts.HTTPTransport = transport
+	}
+}
+
+func WithBodyLimit(limit int64) Option {
+	return func(opts *Options) {
+		opts.BodyLimit = limit
 	}
 }
 

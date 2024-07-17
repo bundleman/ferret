@@ -219,7 +219,6 @@ func newPageLoadParams(url values.String, arg core.Value) (PageLoadParams, error
 		}
 
 		charset, exists := obj.Get(values.NewString("charset"))
-
 		if exists {
 			if err := core.ValidateType(charset, types.String); err != nil {
 				return res, err

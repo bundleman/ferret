@@ -7,10 +7,9 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/gobwas/glob"
-
 	"github.com/MontFerret/ferret/pkg/runtime/logging"
 	"github.com/MontFerret/ferret/pkg/runtime/values"
+	"github.com/gobwas/glob"
 
 	"golang.org/x/net/html/charset"
 
@@ -41,9 +40,9 @@ func NewDriver(opts ...Option) *Driver {
 func newHTTPClient(options *Options) (httpClient *pester.Client) {
 	httpClient = pester.New()
 
+	httpClient.Backoff = options.Backoff
 	httpClient.Concurrency = options.Concurrency
 	httpClient.MaxRetries = options.MaxRetries
-	httpClient.Backoff = options.Backoff
 	httpClient.Timeout = options.Timeout
 
 	if options.HTTPTransport != nil {
@@ -115,6 +114,10 @@ func (drv *Driver) Open(ctx context.Context, params drivers.Params) (drivers.HTM
 	}
 
 	body := io.Reader(resp.Body)
+	if drv.options.BodyLimit > 0 {
+		body = &io.LimitedReader{R: body, N: drv.options.BodyLimit}
+	}
+
 	if params.Charset != "" {
 		body, err = drv.convertToUTF8(body, params.Charset)
 		if err != nil {
