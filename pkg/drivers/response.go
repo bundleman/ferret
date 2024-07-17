@@ -68,7 +68,8 @@ func (resp *HTTPResponse) Unwrap() interface{} {
 }
 
 func (resp *HTTPResponse) Copy() core.Value {
-	return *(&resp)
+	cop := *resp
+	return &cop
 }
 
 func (resp *HTTPResponse) Hash() uint64 {

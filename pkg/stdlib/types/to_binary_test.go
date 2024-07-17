@@ -1,20 +1,26 @@
-package types
+package types_test
 
 import (
 	"context"
 	"testing"
 
-	"github.com/MontFerret/ferret/pkg/runtime/values"
 	. "github.com/smartystreets/goconvey/convey"
+
+	"github.com/MontFerret/ferret/pkg/runtime/values"
+	"github.com/MontFerret/ferret/pkg/stdlib/types"
 )
 
 func TestToBinary(t *testing.T) {
 	Convey("TestToBinary", t, func() {
-		expected := "some data"
+		value := "abc"
 
-		result, err := ToBinary(context.Background(), values.NewString("some data"))
-
+		result, err := types.ToBinary(context.Background(), values.NewString(value))
 		So(err, ShouldBeNil)
-		So(result.String(), ShouldEqual, expected)
+
+		wasBinary, err := types.IsBinary(context.Background(), result)
+		So(err, ShouldBeNil)
+		So(wasBinary, ShouldEqual, values.True)
+
+		So(result.String(), ShouldEqual, value)
 	})
 }

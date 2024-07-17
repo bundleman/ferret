@@ -1,7 +1,7 @@
-// Code generated from antlr/FqlParser.g4 by ANTLR 4.9.3. DO NOT EDIT.
+// Code generated from java-escape by ANTLR 4.11.1. DO NOT EDIT.
 
 package fql // FqlParser
-import "github.com/antlr/antlr4/runtime/Go/antlr"
+import "github.com/antlr/antlr4/runtime/Go/antlr/v4"
 
 // FqlParserListener is a complete listener for a parse tree produced by FqlParser.
 type FqlParserListener interface {
@@ -172,8 +172,8 @@ type FqlParserListener interface {
 	// EnterSafeReservedWord is called when entering the safeReservedWord production.
 	EnterSafeReservedWord(c *SafeReservedWordContext)
 
-	// EnterUnsafReservedWord is called when entering the unsafReservedWord production.
-	EnterUnsafReservedWord(c *UnsafReservedWordContext)
+	// EnterUnsafeReservedWord is called when entering the unsafeReservedWord production.
+	EnterUnsafeReservedWord(c *UnsafeReservedWordContext)
 
 	// EnterRangeOperator is called when entering the rangeOperator production.
 	EnterRangeOperator(c *RangeOperatorContext)
@@ -388,8 +388,8 @@ type FqlParserListener interface {
 	// ExitSafeReservedWord is called when exiting the safeReservedWord production.
 	ExitSafeReservedWord(c *SafeReservedWordContext)
 
-	// ExitUnsafReservedWord is called when exiting the unsafReservedWord production.
-	ExitUnsafReservedWord(c *UnsafReservedWordContext)
+	// ExitUnsafeReservedWord is called when exiting the unsafeReservedWord production.
+	ExitUnsafeReservedWord(c *UnsafeReservedWordContext)
 
 	// ExitRangeOperator is called when exiting the rangeOperator production.
 	ExitRangeOperator(c *RangeOperatorContext)

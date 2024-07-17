@@ -2,9 +2,11 @@ package templates
 
 import (
 	"fmt"
+
+	"github.com/mafredri/cdp/protocol/runtime"
+
 	"github.com/MontFerret/ferret/pkg/drivers"
 	"github.com/MontFerret/ferret/pkg/drivers/cdp/eval"
-	"github.com/mafredri/cdp/protocol/runtime"
 )
 
 const (
@@ -14,27 +16,21 @@ const (
 )
 
 var (
-	queryCSSSelector = fmt.Sprintf(`
+	queryCSSSelector = `
 		(el, selector) => {
 			const found = el.querySelector(selector);
 	
-			%s
-	
 			return found;
 		}
-	`,
-		notFoundErrorFragment,
-	)
+	`
 	queryXPathSelector = fmt.Sprintf(`
 		(el, selector) => {
 			%s
-
-			%s
 	
 			return found;
 		}
 	`,
-		xpathAsElementFragment, notFoundErrorFragment,
+		xpathAsElementFragment,
 	)
 )
 

@@ -1,7 +1,7 @@
-// Code generated from antlr/FqlParser.g4 by ANTLR 4.9.3. DO NOT EDIT.
+// Code generated from java-escape by ANTLR 4.11.1. DO NOT EDIT.
 
 package fql // FqlParser
-import "github.com/antlr/antlr4/runtime/Go/antlr"
+import "github.com/antlr/antlr4/runtime/Go/antlr/v4"
 
 type BaseFqlParserVisitor struct {
 	*antlr.BaseParseTreeVisitor
@@ -227,7 +227,7 @@ func (v *BaseFqlParserVisitor) VisitSafeReservedWord(ctx *SafeReservedWordContex
 	return v.VisitChildren(ctx)
 }
 
-func (v *BaseFqlParserVisitor) VisitUnsafReservedWord(ctx *UnsafReservedWordContext) interface{} {
+func (v *BaseFqlParserVisitor) VisitUnsafeReservedWord(ctx *UnsafeReservedWordContext) interface{} {
 	return v.VisitChildren(ctx)
 }
 
