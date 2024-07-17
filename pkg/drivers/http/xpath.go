@@ -59,7 +59,9 @@ func EvalXPathToNodesWith(selection *goquery.Selection, expression string, mappe
 				return nil, err
 			}
 
-			items.Push(item)
+			if item != nil {
+				items.Push(item)
+			}
 		}
 
 		return items, nil
@@ -80,13 +82,28 @@ func EvalXPathTo(selection *goquery.Selection, expression string) (core.Value, e
 		items := values.NewArray(10)
 
 		for res.MoveNext() {
-			item, err := parseXPathNode(res.Current().(*htmlquery.NodeNavigator).Current())
+			var item core.Value
 
-			if err != nil {
-				return nil, err
+			node := res.Current()
+
+			switch node.NodeType() {
+			case xpath.TextNode:
+				item = values.NewString(node.Value())
+			case xpath.AttributeNode:
+				item = values.NewString(node.Value())
+			default:
+				i, err := parseXPathNode(node.(*htmlquery.NodeNavigator).Current())
+
+				if err != nil {
+					return nil, err
+				}
+
+				item = i
 			}
 
-			items.Push(item)
+			if item != nil {
+				items.Push(item)
+			}
 		}
 
 		return items, nil

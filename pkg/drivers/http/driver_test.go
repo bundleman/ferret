@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/tls"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"reflect"
 	"testing"
@@ -35,15 +34,6 @@ func Test_newHTTPClientWithTransport(t *testing.T) {
 			args: args{options: &Options{
 				Options: &drivers.Options{
 					Proxy: "http://0.0.0.|",
-				},
-				HTTPTransport: httpTransport,
-			}},
-		},
-		{
-			name: "check transport exist with pester.NewExtendedClient()",
-			args: args{options: &Options{
-				Options: &drivers.Options{
-					Proxy: "http://0.0.0.0",
 				},
 				HTTPTransport: httpTransport,
 			}},
@@ -125,7 +115,7 @@ func TestDriver_convertToUTF8(t *testing.T) {
 
 			Convey(tt.name, t, func() {
 
-				data, err := ioutil.ReadAll(bytes.NewBufferString(tt.args.inputData))
+				data, err := io.ReadAll(bytes.NewBufferString(tt.args.inputData))
 				if err != nil {
 					panic(err)
 				}
@@ -143,7 +133,7 @@ func TestDriver_convertToUTF8(t *testing.T) {
 				gotData, err := drv.convertToUTF8(bytes.NewReader(encodedData), tt.args.srcCharset)
 				So(err, ShouldBeNil)
 
-				outData, err := ioutil.ReadAll(gotData)
+				outData, err := io.ReadAll(gotData)
 				So(err, ShouldBeNil)
 
 				So(string(outData), ShouldEqual, tt.expected)

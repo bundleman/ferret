@@ -1,7 +1,7 @@
-// Code generated from antlr/FqlParser.g4 by ANTLR 4.9.3. DO NOT EDIT.
+// Code generated from java-escape by ANTLR 4.11.1. DO NOT EDIT.
 
 package fql // FqlParser
-import "github.com/antlr/antlr4/runtime/Go/antlr"
+import "github.com/antlr/antlr4/runtime/Go/antlr/v4"
 
 // BaseFqlParserListener is a complete listener for a parse tree produced by FqlParser.
 type BaseFqlParserListener struct{}
@@ -350,11 +350,11 @@ func (s *BaseFqlParserListener) EnterSafeReservedWord(ctx *SafeReservedWordConte
 // ExitSafeReservedWord is called when production safeReservedWord is exited.
 func (s *BaseFqlParserListener) ExitSafeReservedWord(ctx *SafeReservedWordContext) {}
 
-// EnterUnsafReservedWord is called when production unsafReservedWord is entered.
-func (s *BaseFqlParserListener) EnterUnsafReservedWord(ctx *UnsafReservedWordContext) {}
+// EnterUnsafeReservedWord is called when production unsafeReservedWord is entered.
+func (s *BaseFqlParserListener) EnterUnsafeReservedWord(ctx *UnsafeReservedWordContext) {}
 
-// ExitUnsafReservedWord is called when production unsafReservedWord is exited.
-func (s *BaseFqlParserListener) ExitUnsafReservedWord(ctx *UnsafReservedWordContext) {}
+// ExitUnsafeReservedWord is called when production unsafeReservedWord is exited.
+func (s *BaseFqlParserListener) ExitUnsafeReservedWord(ctx *UnsafeReservedWordContext) {}
 
 // EnterRangeOperator is called when production rangeOperator is entered.
 func (s *BaseFqlParserListener) EnterRangeOperator(ctx *RangeOperatorContext) {}

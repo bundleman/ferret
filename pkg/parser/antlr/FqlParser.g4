@@ -94,8 +94,11 @@ limitClause
     ;
 
 limitClauseValue
-    : IntegerLiteral
+    : integerLiteral
     | param
+    | variable
+    | functionCallExpression
+    | memberExpression
     ;
 
 sortClause
@@ -168,6 +171,7 @@ timeoutClause
 
 param
     : Param Identifier
+    | Param safeReservedWord
     ;
 
 variable
@@ -229,7 +233,7 @@ propertyName
     | stringLiteral
     | param
     | safeReservedWord
-    | unsafReservedWord
+    | unsafeReservedWord
     ;
 
 namespaceIdentifier
@@ -263,7 +267,7 @@ functionCall
 functionName
     : Identifier
     | safeReservedWord
-    | unsafReservedWord
+    | unsafeReservedWord
     ;
 
 argumentList
@@ -297,7 +301,7 @@ safeReservedWord
     | Current
     ;
 
-unsafReservedWord
+unsafeReservedWord
     : Return
     | None
     | Null

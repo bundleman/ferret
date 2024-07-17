@@ -1,10 +1,12 @@
 package operators_test
 
 import (
+	"testing"
+	"time"
+
 	"github.com/MontFerret/ferret/pkg/runtime/core"
 	"github.com/MontFerret/ferret/pkg/runtime/expressions/operators"
 	"github.com/MontFerret/ferret/pkg/runtime/values"
-	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
 )
@@ -1020,6 +1022,405 @@ func TestDivide(t *testing.T) {
 					}, ShouldPanic)
 				})
 			}
+		})
+	})
+}
+
+func TestPositive(t *testing.T) {
+	Convey("converts value to positive", t, func() {
+		Convey("when int", func() {
+			Convey("postive", func() {
+				So(operators.Positive(values.NewInt(1), nil), ShouldEqual, 1)
+			})
+			Convey("negative", func() {
+				So(operators.Positive(values.NewInt(-1), nil), ShouldEqual, -1)
+			})
+		})
+
+		Convey("when float", func() {
+			Convey("postive", func() {
+				So(operators.Positive(values.NewFloat(1.0), nil), ShouldEqual, 1)
+			})
+			Convey("negative", func() {
+				So(operators.Positive(values.NewFloat(-1.0), nil), ShouldEqual, -1.0)
+			})
+		})
+
+		Convey("non numeric", func() {
+			Convey("string", func() {
+				So(operators.Positive(values.String("1"), nil), ShouldEqual, "1")
+			})
+		})
+	})
+}
+
+func TestNegative(t *testing.T) {
+	Convey("converts value to negative", t, func() {
+		Convey("when int", func() {
+			Convey("postive", func() {
+				So(operators.Negative(values.NewInt(1), nil), ShouldEqual, -1)
+			})
+			Convey("negative", func() {
+				So(operators.Negative(values.NewInt(-1), nil), ShouldEqual, 1)
+			})
+		})
+
+		Convey("when float", func() {
+			Convey("postive", func() {
+				So(operators.Negative(values.NewFloat(1.0), nil), ShouldEqual, -1.0)
+			})
+			Convey("negative", func() {
+				So(operators.Negative(values.NewFloat(-1.0), nil), ShouldEqual, 1.0)
+			})
+		})
+
+		Convey("non numeric", func() {
+			Convey("string", func() {
+				So(operators.Negative(values.String("1"), nil), ShouldEqual, "1")
+			})
+		})
+	})
+}
+
+func TestDecrement(t *testing.T) {
+	Convey("decrement values", t, func() {
+		Convey("decrement int", func() {
+			Convey("positives", func() {
+				So(operators.Decrement(values.NewInt(1), nil), ShouldEqual, 0)
+			})
+			Convey("negatives", func() {
+				So(operators.Decrement(values.NewInt(-1), nil), ShouldEqual, -2)
+			})
+		})
+
+		Convey("decrement float", func() {
+			Convey("positives", func() {
+				So(operators.Decrement(values.NewFloat(1.1), nil), ShouldEqual, 0.10000000000000009)
+			})
+			Convey("negatives", func() {
+				So(operators.Decrement(values.NewFloat(-1.1), nil), ShouldEqual, -2.1)
+			})
+		})
+
+		Convey("other values", func() {
+			So(operators.Decrement(values.None, nil), ShouldEqual, -1)
+		})
+	})
+}
+
+func TestIncrement(t *testing.T) {
+	Convey("increment values", t, func() {
+		Convey("increment int", func() {
+			Convey("positives", func() {
+				So(operators.Increment(values.NewInt(1), nil), ShouldEqual, 2)
+			})
+			Convey("negatives", func() {
+				So(operators.Increment(values.NewInt(-1), nil), ShouldEqual, 0)
+			})
+		})
+
+		Convey("Increment float", func() {
+			Convey("positives", func() {
+				So(operators.Increment(values.NewFloat(1.1), nil), ShouldEqual, 2.1)
+			})
+			Convey("negatives", func() {
+				So(operators.Increment(values.NewFloat(-1.1), nil), ShouldEqual, -0.10000000000000009)
+			})
+		})
+
+		Convey("other values", func() {
+			So(operators.Increment(values.None, nil), ShouldEqual, 1)
+		})
+	})
+}
+
+func TestEqual(t *testing.T) {
+	Convey("Equality in values", t, func() {
+		Convey("1 == 1", func() {
+			So(operators.Equal(values.NewInt(1), values.NewInt(1)), ShouldEqual, values.True)
+		})
+
+		Convey("1 != 2", func() {
+			So(operators.Equal(values.NewInt(1), values.NewInt(2)), ShouldEqual, values.False)
+		})
+
+		Convey("'hello' == 'hello", func() {
+			So(operators.Equal(values.String("hello"), values.String("hello")), ShouldEqual, values.True)
+		})
+
+		Convey("'foo' != 'bar", func() {
+			So(operators.Equal(values.String("foo"), values.String("bar")), ShouldEqual, values.False)
+		})
+	})
+}
+
+func TestNotEqual(t *testing.T) {
+	Convey("Inequality in values", t, func() {
+		Convey("1 == 1", func() {
+			So(operators.NotEqual(values.NewInt(1), values.NewInt(1)), ShouldEqual, values.False)
+		})
+
+		Convey("1 != 2", func() {
+			So(operators.NotEqual(values.NewInt(1), values.NewInt(2)), ShouldEqual, values.True)
+		})
+
+		Convey("'hello' == 'hello", func() {
+			So(operators.NotEqual(values.String("hello"), values.String("hello")), ShouldEqual, values.False)
+		})
+
+		Convey("'foo' != 'bar", func() {
+			So(operators.NotEqual(values.String("foo"), values.String("bar")), ShouldEqual, values.True)
+		})
+	})
+}
+
+func TestModulus(t *testing.T) {
+	Convey("Modulus", t, func() {
+		Convey("5 % 2", func() {
+			So(operators.Modulus(values.NewInt(5), values.NewInt(2)), ShouldEqual, 1)
+		})
+
+		Convey("5.0 % 2", func() {
+			So(operators.Modulus(values.NewFloat(5.0), values.NewInt(2)), ShouldEqual, 1)
+		})
+
+		Convey("5 % 2.0", func() {
+			So(operators.Modulus(values.NewInt(5), values.NewFloat(2.0)), ShouldEqual, 1)
+		})
+
+		Convey("5.1 % 3.2", func() {
+			So(operators.Modulus(values.NewFloat(5.1), values.NewFloat(3.2)), ShouldEqual, 2)
+		})
+
+		Convey("Non int or float", func() {
+			So(operators.Modulus(values.String("foo"), values.NewFloat(3.2)), ShouldEqual, 0)
+		})
+	})
+}
+
+func TestGreater(t *testing.T) {
+	Convey("Greater than value", t, func() {
+		Convey("5 > 2", func() {
+			So(operators.Greater(values.NewInt(5), values.NewInt(2)), ShouldEqual, values.True)
+		})
+
+		Convey("2 > 5", func() {
+			So(operators.Greater(values.NewInt(2), values.NewInt(5)), ShouldEqual, values.False)
+		})
+	})
+}
+
+func TestGreaterOrEqual(t *testing.T) {
+	Convey("Greater or equal than value", t, func() {
+		Convey("5 >= 5", func() {
+			So(operators.GreaterOrEqual(values.NewInt(5), values.NewInt(5)), ShouldEqual, values.True)
+		})
+
+		Convey("2 >= 5", func() {
+			So(operators.GreaterOrEqual(values.NewInt(2), values.NewInt(5)), ShouldEqual, values.False)
+		})
+	})
+}
+
+func TestLess(t *testing.T) {
+	Convey("Less than value", t, func() {
+		Convey("1 < 5", func() {
+			So(operators.Less(values.NewInt(1), values.NewInt(5)), ShouldEqual, values.True)
+		})
+		Convey("5 < 2", func() {
+			So(operators.Less(values.NewInt(5), values.NewInt(2)), ShouldEqual, values.False)
+		})
+	})
+}
+
+func TestLessOrEqual(t *testing.T) {
+	Convey("Less than value", t, func() {
+		Convey("1 < 5", func() {
+			So(operators.LessOrEqual(values.NewInt(1), values.NewInt(5)), ShouldEqual, values.True)
+		})
+		Convey("5 < 2", func() {
+			So(operators.LessOrEqual(values.NewInt(5), values.NewInt(2)), ShouldEqual, values.False)
+		})
+		Convey("5 <= 5", func() {
+			So(operators.LessOrEqual(values.NewInt(5), values.NewInt(5)), ShouldEqual, values.True)
+		})
+	})
+}
+
+func TestNot(t *testing.T) {
+	Convey("Invert truthiness", t, func() {
+		Convey("true turns false", func() {
+			So(operators.Not(values.NewBoolean(true), nil), ShouldEqual, values.False)
+		})
+		Convey("false turns true", func() {
+			So(operators.Not(values.NewBoolean(false), nil), ShouldEqual, values.True)
+		})
+		Convey("'' turns true", func() {
+			So(operators.Not(values.NewString(""), nil), ShouldEqual, values.True)
+		})
+		Convey("'foo' turns false", func() {
+			So(operators.Not(values.NewString("foo"), nil), ShouldEqual, values.False)
+		})
+		Convey("1 turns false", func() {
+			So(operators.Not(values.NewInt(1), nil), ShouldEqual, values.False)
+		})
+		Convey("0 turns true", func() {
+			So(operators.Not(values.NewInt(0), nil), ShouldEqual, values.True)
+		})
+		Convey("1.0 turns false", func() {
+			So(operators.Not(values.NewFloat(1), nil), ShouldEqual, values.False)
+		})
+		Convey("0.0 turns true", func() {
+			So(operators.Not(values.NewFloat(0.0), nil), ShouldEqual, values.True)
+		})
+		Convey("current turns false", func() {
+			So(operators.Not(values.NewDateTime(values.NewCurrentDateTime().Time), nil), ShouldEqual, values.False)
+		})
+		Convey("zerotime turns true", func() {
+			So(operators.Not(values.NewDateTime(values.ZeroDateTime.Time), nil), ShouldEqual, values.True)
+		})
+	})
+}
+
+func TestToNumberOrString(t *testing.T) {
+	Convey("Invert to numeric value", t, func() {
+		Convey("0 turns 0", func() {
+			So(operators.ToNumberOrString(values.NewInt(0)), ShouldEqual, 0)
+		})
+		Convey("1 turns 1", func() {
+			So(operators.ToNumberOrString(values.NewInt(1)), ShouldEqual, 1)
+		})
+		Convey("-1 turns -1", func() {
+			So(operators.ToNumberOrString(values.NewInt(-1)), ShouldEqual, -1)
+		})
+		Convey("0.0 turns 0.0", func() {
+			So(operators.ToNumberOrString(values.NewFloat(0.0)), ShouldEqual, 0.0)
+		})
+		Convey("-1.0 turns -1.0", func() {
+			So(operators.ToNumberOrString(values.NewFloat(-1.0)), ShouldEqual, -1.0)
+		})
+		Convey("1.0 turns 1.0", func() {
+			So(operators.ToNumberOrString(values.NewFloat(1.0)), ShouldEqual, 1.0)
+		})
+		Convey("string type 0 turns string type 0", func() {
+			So(operators.ToNumberOrString(values.NewString("0")), ShouldEqual, "0")
+		})
+		Convey("string type 1 turns string type 1", func() {
+			So(operators.ToNumberOrString(values.NewString("1")), ShouldEqual, "1")
+		})
+		Convey("string type -1 turns string type -1", func() {
+			So(operators.ToNumberOrString(values.NewString("-1")), ShouldEqual, "-1")
+		})
+		Convey("string type 0.0 turns string type 0.0", func() {
+			So(operators.ToNumberOrString(values.NewString("0.0")), ShouldEqual, "0.0")
+		})
+		Convey("a turns a", func() {
+			So(operators.ToNumberOrString(values.NewString("a")), ShouldEqual, "a")
+		})
+		Convey("true turns 1", func() {
+			So(operators.ToNumberOrString(values.NewBoolean(true)), ShouldEqual, 1)
+		})
+		Convey("false turns 0", func() {
+			So(operators.ToNumberOrString(values.NewBoolean(false)), ShouldEqual, 0)
+		})
+		Convey("current DateTime turns unix", func() {
+			So(operators.ToNumberOrString(values.NewDateTime(time.Now())), ShouldEqual, time.Now().Unix())
+		})
+		Convey("zero value DateTime turns 0", func() {
+			var zero time.Time
+			So(operators.ToNumberOrString(values.NewDateTime(zero)), ShouldEqual, 0)
+		})
+		Convey("[1] turns 1", func() {
+			arg := values.NewArrayWith(values.NewInt(1))
+			So(operators.ToNumberOrString(arg), ShouldEqual, 1)
+		})
+		Convey("[1, 2] turns 3", func() {
+			arg := values.NewArrayWith(values.NewInt(1), values.NewInt(2))
+			So(operators.ToNumberOrString(arg), ShouldEqual, 3)
+		})
+		Convey("[a] turns 0", func() {
+			arg := values.NewArrayWith(values.NewString("a"))
+			So(operators.ToNumberOrString(arg), ShouldEqual, 0)
+		})
+		Convey("[true] turns 1", func() {
+			arg := values.NewArrayWith(values.NewBoolean(true))
+			So(operators.ToNumberOrString(arg), ShouldEqual, 1)
+		})
+		Convey("[false] turns 0", func() {
+			arg := values.NewArrayWith(values.NewBoolean(false))
+			So(operators.ToNumberOrString(arg), ShouldEqual, 0)
+		})
+	})
+}
+
+func TestToNumberOnly(t *testing.T) {
+	Convey("Invert to int", t, func() {
+		Convey("0 turns 0", func() {
+			So(operators.ToNumberOnly(values.NewInt(0)), ShouldEqual, 0)
+		})
+		Convey("1 turns 1", func() {
+			So(operators.ToNumberOnly(values.NewInt(1)), ShouldEqual, 1)
+		})
+		Convey("-1 turns -1", func() {
+			So(operators.ToNumberOnly(values.NewInt(-1)), ShouldEqual, -1)
+		})
+		Convey("0.0 turns 0.0", func() {
+			So(operators.ToNumberOnly(values.NewFloat(0.0)), ShouldEqual, 0.0)
+		})
+		Convey("-1.0 turns -1.0", func() {
+			So(operators.ToNumberOnly(values.NewFloat(-1.0)), ShouldEqual, -1.0)
+		})
+		Convey("1.0 turns 1.0", func() {
+			So(operators.ToNumberOnly(values.NewFloat(1.0)), ShouldEqual, 1.0)
+		})
+		Convey("string type 0 turns 0", func() {
+			So(operators.ToNumberOnly(values.NewString("0")), ShouldEqual, 0)
+		})
+		Convey("string type 1 turns 1", func() {
+			So(operators.ToNumberOnly(values.NewString("1")), ShouldEqual, 1)
+		})
+		Convey("string type -1 turns -1", func() {
+			So(operators.ToNumberOnly(values.NewString("-1")), ShouldEqual, -1)
+		})
+		Convey("string type 0.0 turns 0.0", func() {
+			So(operators.ToNumberOnly(values.NewString("0.0")), ShouldEqual, 0.0)
+		})
+
+		Convey("a turns 0", func() {
+			So(operators.ToNumberOnly(values.NewString("a")), ShouldEqual, 0)
+		})
+		Convey("true turns 1", func() {
+			So(operators.ToNumberOnly(values.NewBoolean(true)), ShouldEqual, 1)
+		})
+		Convey("false turns 0", func() {
+			So(operators.ToNumberOnly(values.NewBoolean(false)), ShouldEqual, 0)
+		})
+		Convey("current DateTime turns unix", func() {
+			So(operators.ToNumberOnly(values.NewDateTime(time.Now())), ShouldEqual, time.Now().Unix())
+		})
+		Convey("zero value DateTime turns 0", func() {
+			var zero time.Time
+			So(operators.ToNumberOnly(values.NewDateTime(zero)), ShouldEqual, 0)
+		})
+		Convey("[1] turns 1", func() {
+			arg := values.NewArrayWith(values.NewInt(1))
+			So(operators.ToNumberOnly(arg), ShouldEqual, 1)
+		})
+		Convey("[1, 2] turns 3", func() {
+			arg := values.NewArrayWith(values.NewInt(1), values.NewInt(2))
+			So(operators.ToNumberOnly(arg), ShouldEqual, 3)
+		})
+		Convey("[a] turns 0", func() {
+			arg := values.NewArrayWith(values.NewString("a"))
+			So(operators.ToNumberOnly(arg), ShouldEqual, 0)
+		})
+		Convey("[true] turns 1", func() {
+			arg := values.NewArrayWith(values.NewBoolean(true))
+			So(operators.ToNumberOnly(arg), ShouldEqual, 1)
+		})
+		Convey("[false] turns 0", func() {
+			arg := values.NewArrayWith(values.NewBoolean(false))
+			So(operators.ToNumberOnly(arg), ShouldEqual, 0)
 		})
 	})
 }

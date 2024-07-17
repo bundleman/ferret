@@ -3,7 +3,7 @@ package http
 import (
 	"bytes"
 	"context"
-	"io/ioutil"
+	"io"
 	h "net/http"
 
 	"github.com/MontFerret/ferret/pkg/runtime/core"
@@ -77,7 +77,7 @@ func makeRequest(ctx context.Context, params Params) (core.Value, error) {
 		return values.None, err
 	}
 
-	data, err := ioutil.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
 
 	if err != nil {
 		return values.None, err
@@ -118,11 +118,23 @@ func newParamsFrom(obj *values.Object) (Params, error) {
 	body, exists := obj.Get("body")
 
 	if exists {
-		if err := core.ValidateType(body, types.Binary); err != nil {
-			return Params{}, core.Error(err, ".body")
-		}
+		if core.IsTypeOf(body, types.Binary) {
+			p.Body = body.(values.Binary)
+		} else {
+			j, err := body.MarshalJSON()
 
-		p.Body = body.(values.Binary)
+			if err != nil {
+				return Params{}, core.Error(err, ".body")
+			}
+
+			p.Body = values.NewBinary(j)
+
+			if p.Headers == nil {
+				p.Headers = values.NewObject()
+			}
+
+			p.Headers.Set("Content-Type", values.NewString("application/json"))
+		}
 	}
 
 	return p, nil
