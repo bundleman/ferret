@@ -2,6 +2,7 @@ package cdp
 
 import (
 	"context"
+	"github.com/mafredri/cdp/protocol/runtime"
 	"hash/fnv"
 	"io"
 	"regexp"
@@ -30,13 +31,14 @@ type (
 	HTMLPageEvent string
 
 	HTMLPage struct {
-		mu      sync.Mutex
-		closed  values.Boolean
-		logger  zerolog.Logger
-		conn    *rpcc.Conn
-		client  *cdp.Client
-		network *net.Manager
-		dom     *dom.Manager
+		mu           sync.Mutex
+		closed       values.Boolean
+		logger       zerolog.Logger
+		conn         *rpcc.Conn
+		client       *cdp.Client
+		network      *net.Manager
+		dom          *dom.Manager
+		evaluateArgs *drivers.EvaluateArgs
 	}
 )
 
@@ -118,6 +120,8 @@ func LoadHTMLPage(
 		netManager,
 		domManager,
 	)
+
+	p.SetEvaluateArgs(params.EvaluateArgs)
 
 	if params.URL != BlankPageURL && params.URL != "" {
 		err = p.Navigate(ctx, values.NewString(params.URL))
@@ -507,6 +511,17 @@ func (p *HTMLPage) Navigate(ctx context.Context, url values.String) error {
 		return err
 	}
 
+	if p.evaluateArgs != nil {
+		eval, err := p.client.Runtime.Evaluate(ctx, runtime.NewEvaluateArgs(p.evaluateArgs.Expression))
+		if err != nil {
+			return err
+		}
+
+		if eval.ExceptionDetails != nil {
+			return eval.ExceptionDetails
+		}
+	}
+
 	return p.reloadMainFrame(ctx)
 }
 
@@ -663,4 +678,8 @@ func (p *HTMLPage) loadMainFrame(ctx context.Context) error {
 
 func (p *HTMLPage) getCurrentDocument() *dom.HTMLDocument {
 	return p.dom.GetMainFrame()
+}
+
+func (p *HTMLPage) SetEvaluateArgs(args *drivers.EvaluateArgs) {
+	p.evaluateArgs = args
 }

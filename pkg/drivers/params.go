@@ -37,6 +37,7 @@ type (
 		Ignore            *Ignore
 		SimpleHTTPRequest *SimpleHTTPRequest
 		MaxRedirectsLimit uint8
+		EvaluateArgs      *EvaluateArgs
 	}
 
 	SimpleHTTPRequest struct {
@@ -50,5 +51,9 @@ type (
 		Cookies     *HTTPCookies
 		Headers     *HTTPHeaders
 		Viewport    *Viewport
+	}
+
+	EvaluateArgs struct {
+		Expression string
 	}
 )

@@ -248,6 +248,16 @@ func newPageLoadParams(url values.String, arg core.Value) (PageLoadParams, error
 			res.MaxRedirectsLimit = uint8(values.ToInt(maxRedirectsLimit))
 		}
 
+		evaluateArgsRaw, exists := obj.Get(values.NewString("evaluateArgs"))
+		if exists {
+			evaluateArgs, err := parseSimpleEvaluateArgs(evaluateArgsRaw)
+			if err != nil {
+				return res, err
+			}
+
+			res.EvaluateArgs = evaluateArgs
+		}
+
 	case types.String:
 		res.Driver = arg.(values.String).String()
 	case types.Boolean:
@@ -594,4 +604,23 @@ func parseSimpleHTTPRequest(value core.Value) (*drivers.SimpleHTTPRequest, error
 	req.Method = method.String()
 
 	return req, nil
+}
+
+func parseSimpleEvaluateArgs(value core.Value) (*drivers.EvaluateArgs, error) {
+	if err := core.ValidateType(value, types.Object); err != nil {
+		return nil, err
+	}
+
+	args := &drivers.EvaluateArgs{}
+
+	reqObj := value.(*values.Object)
+
+	expression, expressionExists := reqObj.Get("expression")
+	if !expressionExists {
+		return nil, errors.New("expression doesn't exists")
+	}
+
+	args.Expression = expression.String()
+
+	return args, nil
 }
