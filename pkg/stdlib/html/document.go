@@ -53,6 +53,8 @@ type PageLoadParams struct {
 // @param {Boolean} [params.viewport.mobile] - Value that indicates whether to emulate mobile device.
 // @param {Boolean} [params.viewport.landscape] - Value that indicates whether to render a page in landscape position.
 // @param {String} [params.charset] - (only HTTPDriver) Source charset content to convert UTF-8.
+// @param {Object} [params.evaluateArgs] - Set of parameters to add evaluate rguments.
+// @param {Object} [params.evaluateArgs.expression] - JS script for execution.
 // @return {HTMLPage} - Loaded HTML page.
 func Open(ctx context.Context, args ...core.Value) (core.Value, error) {
 	err := core.ValidateArgs(args, 1, 2)
