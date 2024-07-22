@@ -253,13 +253,6 @@ func newResponseReceivedReader(logger zerolog.Logger, client *cdp.Client, input 
 			} else {
 				body = []byte(resp.Body)
 			}
-		} else {
-			logger.Warn().
-				Str("url", repl.Response.URL).
-				Str("frame_id", frameID).
-				Str("request_id", string(repl.RequestID)).
-				Interface("data", repl.Response).
-				Msg("failed to get response body")
 		}
 
 		return toDriverResponse(repl.Response, body), nil
