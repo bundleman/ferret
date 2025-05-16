@@ -137,6 +137,10 @@ func (drv *Driver) Open(ctx context.Context, params drivers.Params) (drivers.HTM
 }
 
 func (drv *Driver) DoSimpleHTTPRequest(ctx context.Context, params drivers.Params) (*drivers.HTTPResponse, error) {
+	if params.MaxRedirectsLimit > 0 {
+		drv.client.CheckRedirect = checkRedirect(params.MaxRedirectsLimit)
+	}
+
 	logger := logging.FromContext(ctx)
 	req, err := http.NewRequest(params.SimpleHTTPRequest.Method, params.URL, params.SimpleHTTPRequest.Body)
 	if err != nil {
