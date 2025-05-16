@@ -53,12 +53,10 @@ func newHTTPClient(options *Options) (httpClient *pester.Client) {
 		httpClient.Transport = options.HTTPTransport
 	}
 
-	if options.Proxy == "" {
-		return
-	}
-
-	if err := addProxy(httpClient, options.Proxy); err != nil {
-		return
+	if options.Proxy != "" {
+		if err := addProxy(httpClient, options.Proxy); err != nil {
+			return
+		}
 	}
 
 	if options.MaxRedirectsLimit > 0 {
