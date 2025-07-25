@@ -6,6 +6,7 @@ import (
 	"crypto/sha1"
 	"crypto/sha512"
 	"encoding/base64"
+	"encoding/hex"
 	"net/url"
 
 	"github.com/MontFerret/ferret/pkg/runtime/core"
@@ -54,9 +55,12 @@ func Sha1(_ context.Context, args ...core.Value) (core.Value, error) {
 	}
 
 	text := args[0].String()
-	res := sha1.Sum([]byte(text))
+	hasher := sha1.New()
+	hasher.Write([]byte(text))
+	hashBytes := hasher.Sum(nil)
+	hashString := hex.EncodeToString(hashBytes)
 
-	return values.NewString(string(res[:])), nil
+	return values.NewString(hashString), nil
 }
 
 // SHA512 calculates the SHA512 checksum for text and returns it in a hexadecimal string representation.
