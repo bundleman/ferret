@@ -67,3 +67,26 @@ func NewEvalWaitTask(
 		polling,
 	)
 }
+
+// NewEvalWaitTaskBuilder rebuilds the Function on every attempt; on a stale
+// error it refreshes the isolated world so build() picks up a fresh id.
+func NewEvalWaitTaskBuilder(
+	ec *eval.Runtime,
+	build func() *eval.Function,
+	polling time.Duration,
+) *WaitTask {
+	return NewWaitTask(
+		func(ctx context.Context) (core.Value, error) {
+			out, err := ec.EvalValue(ctx, build())
+
+			if err != nil && eval.IsStaleErr(err) {
+				if refreshErr := ec.RefreshContext(ctx); refreshErr == nil {
+					return ec.EvalValue(ctx, build())
+				}
+			}
+
+			return out, err
+		},
+		polling,
+	)
+}

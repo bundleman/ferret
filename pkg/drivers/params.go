@@ -55,5 +55,11 @@ type (
 
 	EvaluateArgs struct {
 		Expression string
+		// OnEveryNewDocument installs the script via
+		// Page.addScriptToEvaluateOnNewDocument so it runs on every new
+		// document (initial load, back/forward, reload, client-side redirect)
+		// before page scripts. Default false keeps the legacy behaviour:
+		// a single Runtime.Evaluate after Navigate().
+		OnEveryNewDocument bool
 	}
 )

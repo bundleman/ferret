@@ -103,6 +103,23 @@ func (m *Manager) LoadDocument(ctx context.Context, frame page.FrameTree) (*HTML
 		*ref.ObjectID,
 	)
 
+	// after refresh the old document ObjectID is invalid; resolve a fresh one.
+	exec.SetRefreshHook(func(hookCtx context.Context, _ *eval.Runtime) error {
+		newRef, hookErr := exec.EvalRef(hookCtx, templates.GetDocument())
+
+		if hookErr != nil {
+			return errors.Wrap(hookErr, "re-resolve document")
+		}
+
+		if newRef.ObjectID == nil {
+			return errors.New("refresh hook: no ObjectID")
+		}
+
+		rootElement.SetRemoteID(*newRef.ObjectID)
+
+		return nil
+	})
+
 	return NewHTMLDocument(
 		m.logger,
 		m.client,

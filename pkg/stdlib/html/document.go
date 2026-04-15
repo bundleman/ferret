@@ -54,7 +54,8 @@ type PageLoadParams struct {
 // @param {Boolean} [params.viewport.landscape] - Value that indicates whether to render a page in landscape position.
 // @param {String} [params.charset] - (only HTTPDriver) Source charset content to convert UTF-8.
 // @param {Object} [params.evaluateArgs] - Set of parameters to add evaluate arguments.
-// @param {Object} [params.evaluateArgs.expression] - JS script for execution.
+// @param {String} [params.evaluateArgs.expression] - JS script for execution.
+// @param {Boolean} [params.evaluateArgs.onEveryNewDocument=false] - (only CDPDriver) When true, the script is registered via Page.addScriptToEvaluateOnNewDocument and runs on every new document (initial load, back/forward, reload, client-side redirect) before any page scripts. When false, the script is executed once via Runtime.Evaluate after Navigate().
 // @return {HTMLPage} - Loaded HTML page.
 func Open(ctx context.Context, args ...core.Value) (core.Value, error) {
 	err := core.ValidateArgs(args, 1, 2)
@@ -623,6 +624,10 @@ func parseSimpleEvaluateArgs(value core.Value) (*drivers.EvaluateArgs, error) {
 	}
 
 	args.Expression = expression.String()
+
+	if v, ok := reqObj.Get("onEveryNewDocument"); ok {
+		args.OnEveryNewDocument = bool(values.ToBoolean(v))
+	}
 
 	return args, nil
 }

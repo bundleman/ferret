@@ -123,6 +123,10 @@ func LoadHTMLPage(
 
 	p.SetEvaluateArgs(params.EvaluateArgs)
 
+	if err := p.installEvaluateScript(ctx); err != nil {
+		return p, errors.Wrap(err, "install evaluate script")
+	}
+
 	if params.URL != BlankPageURL && params.URL != "" {
 		err = p.Navigate(ctx, values.NewString(params.URL))
 	} else {
@@ -511,12 +515,12 @@ func (p *HTMLPage) Navigate(ctx context.Context, url values.String) error {
 		return err
 	}
 
-	if p.evaluateArgs != nil {
+	// OnEveryNewDocument is installed in LoadHTMLPage; otherwise run a one-shot eval.
+	if p.evaluateArgs != nil && !p.evaluateArgs.OnEveryNewDocument {
 		eval, err := p.client.Runtime.Evaluate(ctx, runtime.NewEvaluateArgs(p.evaluateArgs.Expression))
 		if err != nil {
 			return err
 		}
-
 		if eval.ExceptionDetails != nil {
 			return eval.ExceptionDetails
 		}
@@ -682,4 +686,20 @@ func (p *HTMLPage) getCurrentDocument() *dom.HTMLDocument {
 
 func (p *HTMLPage) SetEvaluateArgs(args *drivers.EvaluateArgs) {
 	p.evaluateArgs = args
+}
+
+// installEvaluateScript registers the user script when OnEveryNewDocument
+// is set, so it runs on every new document (reload, redirect, etc.).
+func (p *HTMLPage) installEvaluateScript(ctx context.Context) error {
+	if p.evaluateArgs == nil ||
+		p.evaluateArgs.Expression == "" ||
+		!p.evaluateArgs.OnEveryNewDocument {
+		return nil
+	}
+
+	_, err := p.client.Page.AddScriptToEvaluateOnNewDocument(
+		ctx,
+		page.NewAddScriptToEvaluateOnNewDocumentArgs(p.evaluateArgs.Expression),
+	)
+	return err
 }

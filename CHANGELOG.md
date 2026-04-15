@@ -1,5 +1,18 @@
 ## Changelog
 
+### Unreleased
+
+### Added
+- CDP driver: automatic recovery from stale execution contexts. When Chrome destroys an isolated world after a navigation, reload, or anti-bot redirect, the runtime now recreates the world and retries the failed call once. A refresh hook re-resolves the root document's `RemoteObjectID`, so the same `HTMLDocument` instance stays usable across reloads instead of returning `Cannot find context with specified id (code = -32000)`.
+- CDP driver: `HTMLElement` DOM operations (`GetInnerHTML`, `QuerySelector`, `QuerySelectorAll`, `GetAttribute`, `SetValue`, and all other template-backed methods) transparently rebuild their arguments with the refreshed ObjectID when the first attempt fails with `Argument should belong to the same JavaScript world as target object`.
+- CDP driver: `WAIT_ELEMENT`, `WAIT_CLASS`, `WAIT_ATTRIBUTE`, `WAIT_STYLE` and related waiters rebuild the polled expression on every iteration through `events.NewEvalWaitTaskBuilder`, so they survive isolated-world recreation mid-poll.
+- `evaluateArgs.onEveryNewDocument` (CDP driver): new optional flag on `DOCUMENT()` params. When set to `true`, the user script is registered via `Page.addScriptToEvaluateOnNewDocument` and executes on every new document (initial load, back/forward, reload, client-side redirect) before page scripts. Required for anti-bot pages that reload the client (DDoS-Guard and similar) where a one-shot `Runtime.Evaluate` would be wiped out. Default remains `false` to preserve the legacy single-shot behaviour.
+- Public helpers in `pkg/drivers/cdp/eval`: `IsStaleContextErr`, `IsStaleObjectErr`, `IsStaleErr`, `Runtime.RefreshContext`, `Runtime.SetRefreshHook`. They allow higher layers to opt into the stale-context recovery loop.
+
+### Changed
+- `pkg/drivers/cdp/eval.Runtime` now stores the frame id it was created for, so the isolated world can be recreated on demand without a new `dom.Manager` call.
+- `dom.Manager.LoadDocument` registers a refresh hook that re-evaluates `() => document` and updates the root element's `RemoteObjectID` after a world swap.
+
 ### 0.16.6
 
 ### Fixed

@@ -2,6 +2,8 @@ package eval
 
 import (
 	"context"
+	"strings"
+	"sync"
 
 	"github.com/mafredri/cdp"
 	"github.com/mafredri/cdp/protocol/page"
@@ -20,12 +22,18 @@ const (
 	EmptyObjectID           = runtime.RemoteObjectID("")
 )
 
+// ContextRefreshHook lets owners re-resolve their RemoteObjectIDs in a new world.
+type ContextRefreshHook func(ctx context.Context, rt *Runtime) error
+
 type Runtime struct {
-	logger    zerolog.Logger
-	client    *cdp.Client
-	frame     page.Frame
-	contextID runtime.ExecutionContextID
-	resolver  *Resolver
+	logger      zerolog.Logger
+	client      *cdp.Client
+	frame       page.Frame
+	frameID     page.FrameID
+	mu          sync.Mutex
+	contextID   runtime.ExecutionContextID
+	resolver    *Resolver
+	refreshHook ContextRefreshHook
 }
 
 func Create(
@@ -56,6 +64,7 @@ func New(
 		Int("context_id", int(contextID)).
 		Logger()
 	rt.client = client
+	rt.frameID = frameID
 	rt.contextID = contextID
 	rt.resolver = NewResolver(client.Runtime, frameID)
 
@@ -70,6 +79,81 @@ func (rt *Runtime) SetLoader(loader ValueLoader) *Runtime {
 
 func (rt *Runtime) ContextID() runtime.ExecutionContextID {
 	return rt.contextID
+}
+
+func (rt *Runtime) SetRefreshHook(hook ContextRefreshHook) {
+	rt.mu.Lock()
+	rt.refreshHook = hook
+	rt.mu.Unlock()
+}
+
+func (rt *Runtime) RefreshContext(ctx context.Context) error {
+	return rt.refreshContext(ctx)
+}
+
+// IsStaleContextErr reports CDP -32000 errors for a destroyed execution context.
+func IsStaleContextErr(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := err.Error()
+
+	return strings.Contains(msg, "Cannot find context with specified id") ||
+		strings.Contains(msg, "Execution context was destroyed") ||
+		strings.Contains(msg, "Execution context with given id not found")
+}
+
+// IsStaleObjectErr reports errors where an ObjectID belongs to a different or destroyed world.
+func IsStaleObjectErr(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := err.Error()
+
+	return strings.Contains(msg, "Argument should belong to the same JavaScript world") ||
+		strings.Contains(msg, "Could not find object with given id") ||
+		strings.Contains(msg, "No node with given id found")
+}
+
+func IsStaleErr(err error) bool {
+	return IsStaleContextErr(err) || IsStaleObjectErr(err)
+}
+
+// refreshContext recreates the isolated world and invokes refreshHook.
+func (rt *Runtime) refreshContext(ctx context.Context) error {
+	rt.mu.Lock()
+
+	if rt.frameID == "" {
+		rt.mu.Unlock()
+		return errors.New("cannot refresh execution context: frameID is empty")
+	}
+
+	world, err := rt.client.Page.CreateIsolatedWorld(ctx, page.NewCreateIsolatedWorldArgs(rt.frameID))
+
+	if err != nil {
+		rt.mu.Unlock()
+		return errors.Wrap(err, "failed to recreate isolated world")
+	}
+
+	rt.logger.Debug().
+		Int("old_context_id", int(rt.contextID)).
+		Int("new_context_id", int(world.ExecutionContextID)).
+		Msg("execution context refreshed after stale-context error")
+
+	rt.contextID = world.ExecutionContextID
+	hook := rt.refreshHook
+	rt.mu.Unlock()
+
+	if hook != nil {
+		if hookErr := hook(ctx, rt); hookErr != nil {
+			rt.logger.Warn().Err(hookErr).Msg("refresh hook returned an error")
+			return errors.Wrap(hookErr, "refresh hook")
+		}
+	}
+
+	return nil
 }
 
 func (rt *Runtime) Eval(ctx context.Context, fn *Function) error {
@@ -244,6 +328,16 @@ func (rt *Runtime) evalInternal(ctx context.Context, fn *Function) (runtime.Remo
 
 	repl, err := rt.client.Runtime.CallFunctionOn(ctx, fn.eval(rt.contextID))
 
+	if err != nil && IsStaleContextErr(err) {
+		log.Trace().Err(err).Msg("stale execution context detected, refreshing and retrying")
+
+		if refreshErr := rt.refreshContext(ctx); refreshErr != nil {
+			return runtime.RemoteObject{}, errors.Wrap(refreshErr, "runtime evalInternal: refresh")
+		}
+
+		repl, err = rt.client.Runtime.CallFunctionOn(ctx, fn.eval(rt.contextID))
+	}
+
 	if err != nil {
 		log.Trace().Err(err).Msg("failed executing expression")
 
@@ -289,6 +383,16 @@ func (rt *Runtime) callInternal(ctx context.Context, fn *CompiledFunction) (runt
 	log.Trace().Msg("executing compiled script...")
 
 	repl, err := rt.client.Runtime.RunScript(ctx, fn.call(rt.contextID))
+
+	if err != nil && IsStaleContextErr(err) {
+		log.Trace().Err(err).Msg("stale execution context detected, refreshing and retrying")
+
+		if refreshErr := rt.refreshContext(ctx); refreshErr != nil {
+			return runtime.RemoteObject{}, errors.Wrap(refreshErr, "runtime callInternal: refresh")
+		}
+
+		repl, err = rt.client.Runtime.RunScript(ctx, fn.call(rt.contextID))
+	}
 
 	if err != nil {
 		log.Trace().Err(err).Msg("failed executing compiled script")
