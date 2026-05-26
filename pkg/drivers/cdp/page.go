@@ -99,6 +99,10 @@ func LoadHTMLPage(
 		return nil, err
 	}
 
+	// Close on error paths below; otherwise the interceptor goroutine and its
+	// connection leak (netManager runs on its own context.Background()).
+	closers = append(closers, netManager)
+
 	mouse := input.NewMouse(client)
 	keyboard := input.NewKeyboard(client)
 
@@ -112,6 +116,8 @@ func LoadHTMLPage(
 	if err != nil {
 		return nil, err
 	}
+
+	closers = append(closers, domManager)
 
 	p = NewHTMLPage(
 		logger,
