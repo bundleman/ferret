@@ -8,11 +8,12 @@ type (
 	GlobalOption func(drv Driver, opts *globalOptions)
 
 	Options struct {
-		Name      string
-		Proxy     string
-		UserAgent string
-		Headers   *HTTPHeaders
-		Cookies   *HTTPCookies
+		Name                 string
+		Proxy                string
+		UserAgent            string
+		Headers              *HTTPHeaders
+		Cookies              *HTTPCookies
+		DisableRuntimeEnable bool
 	}
 
 	Option func(opts *Options)
@@ -86,4 +87,8 @@ func WithCookies(cookies []HTTPCookie) Option {
 			opts.Cookies.Set(c)
 		}
 	}
+}
+
+func WithoutRuntimeEnable() Option {
+	return func(opts *Options) { opts.DisableRuntimeEnable = true }
 }

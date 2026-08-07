@@ -102,5 +102,9 @@ func SetDefaultParams(opts *Options, params Params) Params {
 		params.UserAgent = opts.UserAgent
 	}
 
+	if opts.DisableRuntimeEnable {
+		params.DisableRuntimeEnable = true
+	}
+
 	return params
 }

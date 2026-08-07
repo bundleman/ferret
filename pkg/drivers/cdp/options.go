@@ -115,3 +115,7 @@ func WithNoCompression() Option {
 		opts.Connection.Compression = false
 	}
 }
+
+func WithoutRuntimeEnable() Option {
+	return func(opts *Options) { drivers.WithoutRuntimeEnable()(opts.Options) }
+}

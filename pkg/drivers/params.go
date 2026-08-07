@@ -27,17 +27,18 @@ type (
 	}
 
 	Params struct {
-		URL               string
-		UserAgent         string
-		KeepCookies       bool
-		Cookies           *HTTPCookies
-		Headers           *HTTPHeaders
-		Viewport          *Viewport
-		Charset           string
-		Ignore            *Ignore
-		SimpleHTTPRequest *SimpleHTTPRequest
-		MaxRedirectsLimit uint8
-		EvaluateArgs      *EvaluateArgs
+		URL                  string
+		UserAgent            string
+		KeepCookies          bool
+		Cookies              *HTTPCookies
+		Headers              *HTTPHeaders
+		Viewport             *Viewport
+		Charset              string
+		Ignore               *Ignore
+		SimpleHTTPRequest    *SimpleHTTPRequest
+		MaxRedirectsLimit    uint8
+		EvaluateArgs         *EvaluateArgs
+		DisableRuntimeEnable bool
 	}
 
 	SimpleHTTPRequest struct {
