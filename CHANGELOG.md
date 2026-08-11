@@ -1,6 +1,6 @@
 ## Changelog
 
-### Unreleased
+### 0.18.0-r.4
 
 ### Added
 - CDP driver: automatic recovery from stale execution contexts. When Chrome destroys an isolated world after a navigation, reload, or anti-bot redirect, the runtime now recreates the world and retries the failed call once. A refresh hook re-resolves the root document's `RemoteObjectID`, so the same `HTMLDocument` instance stays usable across reloads instead of returning `Cannot find context with specified id (code = -32000)`.
@@ -8,6 +8,7 @@
 - CDP driver: `WAIT_ELEMENT`, `WAIT_CLASS`, `WAIT_ATTRIBUTE`, `WAIT_STYLE` and related waiters rebuild the polled expression on every iteration through `events.NewEvalWaitTaskBuilder`, so they survive isolated-world recreation mid-poll.
 - `evaluateArgs.onEveryNewDocument` (CDP driver): new optional flag on `DOCUMENT()` params. When set to `true`, the user script is registered via `Page.addScriptToEvaluateOnNewDocument` and executes on every new document (initial load, back/forward, reload, client-side redirect) before page scripts. Required for anti-bot pages that reload the client (DDoS-Guard and similar) where a one-shot `Runtime.Evaluate` would be wiped out. Default remains `false` to preserve the legacy single-shot behaviour.
 - Public helpers in `pkg/drivers/cdp/eval`: `IsStaleContextErr`, `IsStaleObjectErr`, `IsStaleErr`, `Runtime.RefreshContext`, `Runtime.SetRefreshHook`. They allow higher layers to opt into the stale-context recovery loop.
+- `disableRuntime` (CDP driver): new optional boolean flag on `DOCUMENT()` params. When `true`, the CDP driver skips `Runtime.enable` for that navigation, so the page loads without switching V8 into debug mode — needed to pass JS-challenge anti-bots (ServicePipe). Enabled per-document from FQL; default `false`.
 
 ### Changed
 - `pkg/drivers/cdp/eval.Runtime` now stores the frame id it was created for, so the isolated world can be recreated on demand without a new `dom.Manager` call.
