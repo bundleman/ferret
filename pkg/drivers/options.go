@@ -8,12 +8,11 @@ type (
 	GlobalOption func(drv Driver, opts *globalOptions)
 
 	Options struct {
-		Name           string
-		Proxy          string
-		UserAgent      string
-		Headers        *HTTPHeaders
-		Cookies        *HTTPCookies
-		DisableRuntime bool
+		Name      string
+		Proxy     string
+		UserAgent string
+		Headers   *HTTPHeaders
+		Cookies   *HTTPCookies
 	}
 
 	Option func(opts *Options)
