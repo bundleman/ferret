@@ -115,9 +115,3 @@ func WithNoCompression() Option {
 		opts.Connection.Compression = false
 	}
 }
-
-func WithDisableRuntime() Option {
-	return func(opts *Options) {
-		opts.DisableRuntime = true
-	}
-}
