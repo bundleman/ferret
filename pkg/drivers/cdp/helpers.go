@@ -72,7 +72,7 @@ func enableFeatures(ctx context.Context, client *cdp.Client, params drivers.Para
 		},
 	}
 
-	if !params.DisableRuntimeEnable {
+	if !params.DisableRuntime {
 		batch = append(batch, func() error {
 			return client.Runtime.Enable(ctx)
 		})

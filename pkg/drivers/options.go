@@ -13,7 +13,7 @@ type (
 		UserAgent            string
 		Headers              *HTTPHeaders
 		Cookies              *HTTPCookies
-		DisableRuntimeEnable bool
+		DisableRuntime bool
 	}
 
 	Option func(opts *Options)
@@ -90,5 +90,5 @@ func WithCookies(cookies []HTTPCookie) Option {
 }
 
 func WithoutRuntimeEnable() Option {
-	return func(opts *Options) { opts.DisableRuntimeEnable = true }
+	return func(opts *Options) { opts.DisableRuntime = true }
 }

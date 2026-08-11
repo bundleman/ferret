@@ -38,7 +38,7 @@ type (
 		SimpleHTTPRequest    *SimpleHTTPRequest
 		MaxRedirectsLimit    uint8
 		EvaluateArgs         *EvaluateArgs
-		DisableRuntimeEnable bool
+		DisableRuntime bool
 	}
 
 	SimpleHTTPRequest struct {
