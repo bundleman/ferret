@@ -119,3 +119,9 @@ func WithNoCompression() Option {
 func WithoutRuntimeEnable() Option {
 	return func(opts *Options) { drivers.WithoutRuntimeEnable()(opts.Options) }
 }
+
+func WithDisableRuntimeEnable() Option {
+	return func(opts *Options) {
+		opts.DisableRuntimeEnable = true
+	}
+}
