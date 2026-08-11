@@ -162,6 +162,16 @@ func newPageLoadParams(url values.String, arg core.Value) (PageLoadParams, error
 			res.KeepCookies = bool(keepCookies.(values.Boolean))
 		}
 
+		disableRuntime, exists := obj.Get(values.NewString("disableRuntime"))
+
+		if exists {
+			if err := core.ValidateType(disableRuntime, types.Boolean); err != nil {
+				return res, err
+			}
+
+			res.DisableRuntime = bool(disableRuntime.(values.Boolean))
+		}
+
 		cookies, exists := obj.Get(values.NewString("cookies"))
 
 		if exists {

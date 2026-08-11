@@ -59,7 +59,7 @@ func enableFeatures(ctx context.Context, client *cdp.Client, params drivers.Para
 		return err
 	}
 
-	return runBatch(
+	batch := []func() error{
 		func() error {
 			return client.Page.SetLifecycleEventsEnabled(
 				ctx,
@@ -70,11 +70,15 @@ func enableFeatures(ctx context.Context, client *cdp.Client, params drivers.Para
 		func() error {
 			return client.DOM.Enable(ctx, dom.NewEnableArgs().SetIncludeWhitespace("all"))
 		},
+	}
 
-		func() error {
+	if !params.DisableRuntime {
+		batch = append(batch, func() error {
 			return client.Runtime.Enable(ctx)
-		},
+		})
+	}
 
+	batch = append(batch,
 		func() error {
 			ua := common.GetUserAgent(params.UserAgent)
 
@@ -131,4 +135,6 @@ func enableFeatures(ctx context.Context, client *cdp.Client, params drivers.Para
 			)
 		},
 	)
+
+	return runBatch(batch...)
 }
