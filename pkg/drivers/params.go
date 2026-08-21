@@ -39,6 +39,7 @@ type (
 		MaxRedirectsLimit uint8
 		EvaluateArgs      *EvaluateArgs
 		DisableRuntime    bool
+		DirectNavigation  bool
 	}
 
 	SimpleHTTPRequest struct {

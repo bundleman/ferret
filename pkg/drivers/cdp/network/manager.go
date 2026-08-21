@@ -168,7 +168,7 @@ func (m *Manager) setCookiesInternal(ctx context.Context, url string, cookies *d
 	params := make([]network.CookieParam, 0, cookies.Length())
 
 	cookies.ForEach(func(value drivers.HTTPCookie, _ values.String) bool {
-		params = append(params, fromDriverCookie(url, value))
+		params = append(params, FromDriverCookie(url, value))
 
 		return true
 	})

@@ -9,13 +9,17 @@ import (
 	"github.com/mafredri/cdp"
 	"github.com/mafredri/cdp/devtool"
 	"github.com/mafredri/cdp/protocol/browser"
+	"github.com/mafredri/cdp/protocol/network"
+	"github.com/mafredri/cdp/protocol/storage"
 	"github.com/mafredri/cdp/protocol/target"
 	"github.com/mafredri/cdp/rpcc"
 	"github.com/mafredri/cdp/session"
 	"github.com/pkg/errors"
 
 	"github.com/MontFerret/ferret/pkg/drivers"
+	net "github.com/MontFerret/ferret/pkg/drivers/cdp/network"
 	"github.com/MontFerret/ferret/pkg/runtime/logging"
+	"github.com/MontFerret/ferret/pkg/runtime/values"
 )
 
 const DriverName = "cdp"
@@ -50,7 +54,7 @@ func (drv *Driver) Name() string {
 
 func (drv *Driver) Open(ctx context.Context, params drivers.Params) (drivers.HTMLPage, error) {
 	logger := logging.FromContext(ctx)
-	conn, err := drv.createConnection(ctx, params.KeepCookies)
+	conn, err := drv.createConnection(ctx, params)
 
 	if err != nil {
 		logger.Error().
@@ -67,7 +71,7 @@ func (drv *Driver) Open(ctx context.Context, params drivers.Params) (drivers.HTM
 func (drv *Driver) Parse(ctx context.Context, params drivers.ParseParams) (drivers.HTMLPage, error) {
 	logger := logging.FromContext(ctx)
 
-	conn, err := drv.createConnection(ctx, true)
+	conn, err := drv.createConnection(ctx, drivers.Params{KeepCookies: true})
 
 	if err != nil {
 		logger.Error().
@@ -105,19 +109,37 @@ func (drv *Driver) Close() error {
 	return nil
 }
 
-func (drv *Driver) createConnection(ctx context.Context, keepCookies bool) (*rpcc.Conn, error) {
+func (drv *Driver) createConnection(ctx context.Context, params drivers.Params) (*rpcc.Conn, error) {
 	err := drv.init(ctx)
 
 	if err != nil {
 		return nil, errors.Wrap(err, "initialize driver")
 	}
 
-	// Args for a new target belonging to the browser context
-	createTargetArgs := target.NewCreateTargetArgs(BlankPageURL)
+	// With DirectNavigation the tab opens straight on the target URL: no blank page and no
+	// Page.navigate command afterwards.
+	targetURL := BlankPageURL
 
-	if !drv.options.KeepCookies && !keepCookies {
+	if params.DirectNavigation && params.URL != "" {
+		targetURL = params.URL
+	}
+
+	// Args for a new target belonging to the browser context
+	createTargetArgs := target.NewCreateTargetArgs(targetURL)
+
+	incognito := !drv.options.KeepCookies && !params.KeepCookies
+
+	if incognito {
 		// Set it to an incognito mode
 		createTargetArgs.SetBrowserContextID(drv.contextID)
+	}
+
+	// The tab starts loading as soon as it is created, so cookies cannot be set on its
+	// session anymore: they go to the browser context instead, before the target exists.
+	if targetURL != BlankPageURL && params.Cookies != nil && params.Cookies.Length() > 0 {
+		if err := drv.setContextCookies(ctx, params, incognito); err != nil {
+			return nil, errors.Wrap(err, "set cookies")
+		}
 	}
 
 	// New target
@@ -135,6 +157,24 @@ func (drv *Driver) createConnection(ctx context.Context, keepCookies bool) (*rpc
 	}
 
 	return conn, nil
+}
+
+func (drv *Driver) setContextCookies(ctx context.Context, params drivers.Params, incognito bool) error {
+	cookies := make([]network.CookieParam, 0, params.Cookies.Length())
+
+	params.Cookies.ForEach(func(value drivers.HTTPCookie, _ values.String) bool {
+		cookies = append(cookies, net.FromDriverCookie(params.URL, value))
+
+		return true
+	})
+
+	args := storage.NewSetCookiesArgs(cookies)
+
+	if incognito {
+		args.SetBrowserContextID(drv.contextID)
+	}
+
+	return drv.client.Storage.SetCookies(ctx, args)
 }
 
 func (drv *Driver) setDefaultParams(params drivers.Params) drivers.Params {

@@ -172,6 +172,16 @@ func newPageLoadParams(url values.String, arg core.Value) (PageLoadParams, error
 			res.DisableRuntime = bool(disableRuntime.(values.Boolean))
 		}
 
+		directNavigation, exists := obj.Get(values.NewString("directNavigation"))
+
+		if exists {
+			if err := core.ValidateType(directNavigation, types.Boolean); err != nil {
+				return res, err
+			}
+
+			res.DirectNavigation = bool(directNavigation.(values.Boolean))
+		}
+
 		cookies, exists := obj.Get(values.NewString("cookies"))
 
 		if exists {

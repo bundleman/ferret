@@ -1,5 +1,12 @@
 ## Changelog
 
+### Unreleased
+
+### Added
+- `directNavigation` (CDP driver): new optional boolean flag on `DOCUMENT()` params. When `true`, the tab is created straight on the target URL via `Target.createTarget(url)` instead of opening `about:blank` and then issuing `Page.navigate`. Cookies are applied to the browser context with `Storage.setCookies` before the target exists, so they still reach the first request. Needed for anti-bot systems that score the blank-page-then-navigate pattern under a live CDP session (ServicePipe: 8 challenges out of 9 with the default flow, 0 out of 6 with this one, same machine and IP). Default `false`.
+  - A one-shot `evaluateArgs.expression` still runs: with no `Page.navigate` call to hang it on, it is executed right after the document commit instead.
+  - Note: `userAgent`, `headers` and `viewport` are session-level overrides applied after the target is created, so with `directNavigation` they do not affect the first request — only subsequent navigations within the page.
+
 ### 0.18.0-r.4
 
 ### Added

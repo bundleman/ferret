@@ -62,7 +62,8 @@ func toDriverRequest(req network.Request) *drivers.HTTPRequest {
 	}
 }
 
-func fromDriverCookie(url string, cookie drivers.HTTPCookie) network.CookieParam {
+// FromDriverCookie converts a driver cookie into its CDP counterpart.
+func FromDriverCookie(url string, cookie drivers.HTTPCookie) network.CookieParam {
 	sameSite := network.CookieSameSiteNotSet
 
 	switch cookie.SameSite {

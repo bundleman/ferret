@@ -78,7 +78,9 @@ func LoadHTMLPage(
 		Headers: params.Headers,
 	}
 
-	if params.Cookies != nil && params.Cookies.Length() > 0 {
+	// With DirectNavigation cookies are already set on the browser context by the driver:
+	// setting them again here would happen after the page has started loading.
+	if !params.DirectNavigation && params.Cookies != nil && params.Cookies.Length() > 0 {
 		netOpts.Cookies = make(map[string]*drivers.HTTPCookies)
 		netOpts.Cookies[params.URL] = params.Cookies
 	}
@@ -134,7 +136,11 @@ func LoadHTMLPage(
 	}
 
 	if params.URL != BlankPageURL && params.URL != "" {
-		err = p.Navigate(ctx, values.NewString(params.URL))
+		if params.DirectNavigation {
+			err = p.awaitDirectNavigation(ctx)
+		} else {
+			err = p.Navigate(ctx, values.NewString(params.URL))
+		}
 	} else {
 		err = p.loadMainFrame(ctx)
 	}
@@ -521,15 +527,8 @@ func (p *HTMLPage) Navigate(ctx context.Context, url values.String) error {
 		return err
 	}
 
-	// OnEveryNewDocument is installed in LoadHTMLPage; otherwise run a one-shot eval.
-	if p.evaluateArgs != nil && !p.evaluateArgs.OnEveryNewDocument {
-		eval, err := p.client.Runtime.Evaluate(ctx, runtime.NewEvaluateArgs(p.evaluateArgs.Expression))
-		if err != nil {
-			return err
-		}
-		if eval.ExceptionDetails != nil {
-			return eval.ExceptionDetails
-		}
+	if err := p.evaluateOnce(ctx); err != nil {
+		return err
 	}
 
 	return p.reloadMainFrame(ctx)
@@ -672,6 +671,80 @@ func (p *HTMLPage) reloadMainFrame(ctx context.Context) error {
 	p.dom.SetMainFrame(next)
 
 	return nil
+}
+
+// awaitDirectNavigation finishes a navigation that has already been started by opening the
+// tab on the target URL. There is no command to send, only the document commit to wait for.
+// The event stream is opened before the frame is inspected, otherwise a commit landing
+// between the check and the subscription would be waited for forever.
+func (p *HTMLPage) awaitDirectNavigation(ctx context.Context) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	stream, err := p.network.OnNavigation(ctx)
+
+	if err != nil {
+		return err
+	}
+
+	defer stream.Close(ctx)
+
+	committed, err := p.isDocumentCommitted(ctx)
+
+	if err != nil {
+		return err
+	}
+
+	if !committed {
+		for range stream.Read(ctx) {
+			break
+		}
+
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
+
+	// The user script would otherwise be lost: with no Page.navigate call there is nothing
+	// to hang it on, so it runs here instead.
+	if err := p.evaluateOnce(ctx); err != nil {
+		return err
+	}
+
+	return p.loadMainFrame(ctx)
+}
+
+// evaluateOnce runs the user script a single time. OnEveryNewDocument is installed in
+// LoadHTMLPage instead, so this is a no-op for that mode.
+func (p *HTMLPage) evaluateOnce(ctx context.Context) error {
+	if p.evaluateArgs == nil || p.evaluateArgs.OnEveryNewDocument {
+		return nil
+	}
+
+	eval, err := p.client.Runtime.Evaluate(ctx, runtime.NewEvaluateArgs(p.evaluateArgs.Expression))
+
+	if err != nil {
+		return err
+	}
+
+	if eval.ExceptionDetails != nil {
+		return eval.ExceptionDetails
+	}
+
+	return nil
+}
+
+// isDocumentCommitted reports whether the main frame has left the initial blank document.
+func (p *HTMLPage) isDocumentCommitted(ctx context.Context) (bool, error) {
+	tree, err := p.client.Page.GetFrameTree(ctx)
+
+	if err != nil {
+		return false, err
+	}
+
+	url := tree.FrameTree.Frame.URL
+
+	return url != "" && url != BlankPageURL, nil
 }
 
 func (p *HTMLPage) loadMainFrame(ctx context.Context) error {
