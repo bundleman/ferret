@@ -1,6 +1,11 @@
 ## Changelog
 
-### Unreleased
+### 0.18.0-r.6
+
+### Fixed
+- CDP driver: a tab that ended up on Chrome's error page was never closed. After a failed navigation (e.g. `net::ERR_HTTP_RESPONSE_CODE_FAILURE` on a 403 with an empty body) Chrome swaps the tab to its error page and `Page.close` answers "Not attached to an active page", so the tab stayed open for good. Now the target itself is closed with `Target.closeTarget` when `Page.close` fails, both when the first load of `DOCUMENT()` fails and when a page is closed at the end of a query. If the tab cannot be closed either way, a warning with the load error and both close errors is logged; before, the close error was built without a message and zerolog dropped it. On a live browser: 3 failed loads and 3 pages closed on an error page left 6 tabs open before the fix and none after. In production the Wildberries bundles collected 200–750 such tabs between restarts and were OOM-killed every 25–40 minutes.
+
+### 0.18.0-r.5
 
 ### Added
 - `directNavigation` (CDP driver): new optional boolean flag on `DOCUMENT()` params. When `true`, the tab is created straight on the target URL via `Target.createTarget(url)` instead of opening `about:blank` and then issuing `Page.navigate`. Cookies are applied to the browser context with `Storage.setCookies` before the target exists, so they still reach the first request. Needed for anti-bot systems that score the blank-page-then-navigate pattern under a live CDP session (ServicePipe: 8 challenges out of 9 with the default flow, 0 out of 6 with this one, same machine and IP). Default `false`.

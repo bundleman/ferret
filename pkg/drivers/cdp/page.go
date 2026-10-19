@@ -7,9 +7,11 @@ import (
 	"io"
 	"regexp"
 	"sync"
+	"time"
 
 	"github.com/mafredri/cdp"
 	"github.com/mafredri/cdp/protocol/page"
+	"github.com/mafredri/cdp/protocol/target"
 	"github.com/mafredri/cdp/rpcc"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
@@ -62,13 +64,21 @@ func LoadHTMLPage(
 
 	defer func() {
 		if err != nil {
-			if err := client.Page.Close(context.Background()); err != nil {
-				logger.Error().Err(err)
+			if closeErr := client.Page.Close(context.Background()); closeErr != nil {
+				// A failed navigation may leave the tab on Chrome's error page with the session
+				// no longer attached to a page: Page.close fails and the tab stays open for good.
+				// Closing the target itself works in any state.
+				if targetErr := closeOwnTarget(client); targetErr != nil {
+					logger.Warn().
+						Err(err).
+						AnErr("page_close", closeErr).
+						AnErr("close_target", targetErr).
+						Msg("failed to close browser page after a failed load")
+				}
 			}
 
-			if err := conn.Close(); err != nil {
-				logger.Error().Err(err)
-			}
+			// Ignore errors from the connection object, as Close does
+			conn.Close()
 
 			common.CloseAll(logger, closers, "failed to close a Page resource")
 		}
@@ -150,6 +160,22 @@ func LoadHTMLPage(
 	}
 
 	return p, nil
+}
+
+// closeOwnTarget closes the tab the client's session is attached to.
+func closeOwnTarget(client *cdp.Client) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	info, err := client.Target.GetTargetInfo(ctx, target.NewGetTargetInfoArgs())
+
+	if err != nil {
+		return err
+	}
+
+	_, err = client.Target.CloseTarget(ctx, target.NewCloseTargetArgs(info.TargetInfo.TargetID))
+
+	return err
 }
 
 func LoadHTMLPageWithContent(
@@ -315,10 +341,15 @@ func (p *HTMLPage) Close() error {
 	err = p.client.Page.Close(context.Background())
 
 	if err != nil {
-		p.logger.Warn().
-			Str("url", url).
-			Err(err).
-			Msg("failed to close browser page")
+		// Same as after a failed load: once the tab has navigated to Chrome's error page,
+		// Page.close fails but closing the target works
+		if cerr := closeOwnTarget(p.client); cerr != nil {
+			p.logger.Warn().
+				Str("url", url).
+				Err(err).
+				AnErr("close_target", cerr).
+				Msg("failed to close browser page")
+		}
 	}
 
 	// Ignore errors from the connection object
