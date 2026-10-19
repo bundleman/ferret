@@ -6,6 +6,7 @@ import (
 	"hash/fnv"
 	"io"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -41,6 +42,8 @@ type (
 		network      *net.Manager
 		dom          *dom.Manager
 		evaluateArgs *drivers.EvaluateArgs
+		// release returns a fetchMode tab to its pool instead of closing it
+		release func(page *HTMLPage) bool
 	}
 )
 
@@ -308,6 +311,52 @@ func (p *HTMLPage) Length() values.Int {
 }
 
 func (p *HTMLPage) Close() error {
+	// The runtime closes every page when a query ends. A fetchMode tab goes back
+	// to its pool instead, so the next query gets it still warmed up.
+	p.mu.Lock()
+	release := p.release
+	p.mu.Unlock()
+
+	if release != nil && release(p) {
+		return nil
+	}
+
+	return p.destroy()
+}
+
+// ping checks that the tab still answers, without running any script on the page.
+func (p *HTMLPage) ping(ctx context.Context) error {
+	// A failed root document reload leaves the page without a main frame: the tab still
+	// answers, but every call on the page dereferences the missing document.
+	if p.getCurrentDocument() == nil {
+		return errors.New("page has no main frame")
+	}
+
+	tree, err := p.client.Page.GetFrameTree(ctx)
+
+	if err != nil {
+		return err
+	}
+
+	// A query that ended on a failed navigation leaves the tab on Chrome's error page:
+	// the next query would fetch from there, so the tab is replaced instead.
+	frame := tree.FrameTree.Frame
+
+	if strings.HasPrefix(frame.URL, "chrome-error:") || (frame.UnreachableURL != nil && *frame.UnreachableURL != "") {
+		return errors.New("page is on Chrome's error page")
+	}
+
+	return nil
+}
+
+func (p *HTMLPage) setRelease(release func(page *HTMLPage) bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.release = release
+}
+
+func (p *HTMLPage) destroy() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 

@@ -2,6 +2,7 @@ package core
 
 import (
 	"io"
+	"reflect"
 )
 
 type (
@@ -33,9 +34,21 @@ func (s *RootScope) AddDisposable(disposable io.Closer) {
 		return
 	}
 
-	if disposable != nil {
-		s.disposables = append(s.disposables, disposable)
+	if disposable == nil {
+		return
 	}
+
+	// A value assigned to several variables is closed once. A second Close of a fetchMode
+	// tab would hand back a tab that another query may have taken in the meantime.
+	if reflect.TypeOf(disposable).Comparable() {
+		for _, registered := range s.disposables {
+			if registered == disposable {
+				return
+			}
+		}
+	}
+
+	s.disposables = append(s.disposables, disposable)
 }
 
 func (s *RootScope) Close() error {

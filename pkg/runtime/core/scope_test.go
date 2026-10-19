@@ -234,6 +234,19 @@ func TestCloseFunc(t *testing.T) {
 		So(tc.closed, ShouldBeTrue)
 	})
 
+	Convey("Should close a value assigned to several variables once", t, func() {
+		rs, cf := core.NewRootScope()
+
+		tc := &TestCloserValue{}
+
+		So(rs.SetVariable("first", tc), ShouldBeNil)
+		So(rs.SetVariable("second", tc), ShouldBeNil)
+
+		// a second Close of TestCloserValue returns an error
+		So(cf(), ShouldBeNil)
+		So(tc.closed, ShouldBeTrue)
+	})
+
 	Convey("Should return error if it's already closed", t, func() {
 		rs, cf := core.NewRootScope()
 

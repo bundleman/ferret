@@ -56,6 +56,11 @@ type PageLoadParams struct {
 // @param {Object} [params.evaluateArgs] - Set of parameters to add evaluate arguments.
 // @param {String} [params.evaluateArgs.expression] - JS script for execution.
 // @param {Boolean} [params.evaluateArgs.onEveryNewDocument=false] - (only CDPDriver) When true, the script is registered via Page.addScriptToEvaluateOnNewDocument and runs on every new document (initial load, back/forward, reload, client-side redirect) before any page scripts. When false, the script is executed once via Runtime.Evaluate after Navigate().
+// @param {Boolean} [params.fetchMode=false] - (only CDPDriver) Keep the tab open after the query: it goes back to a pool, and the next DOCUMENT() with the same fetchPoolKey gets this tab as is, without navigation. For fetching data from inside an already warmed page. Assign the document to a variable (LET), otherwise the tab is not returned to the pool. Other params apply only when a new tab is opened.
+// @param {String} [params.fetchPoolKey="default"] - (only CDPDriver) Pool key for fetchMode tabs, e.g. a proxy or a region.
+// @param {Int} [params.fetchPoolSize=1] - (only CDPDriver) Maximum open tabs per fetchPoolKey. A query waits for a free tab up to params.timeout.
+// @param {Int} [params.fetchMaxUses=500] - (only CDPDriver) Queries served by a tab before it is closed and reopened.
+// @param {Int} [params.fetchMaxAge=1800000] - (only CDPDriver) Tab lifetime in milliseconds before it is closed and reopened.
 // @return {HTMLPage} - Loaded HTML page.
 func Open(ctx context.Context, args ...core.Value) (core.Value, error) {
 	err := core.ValidateArgs(args, 1, 2)
@@ -181,6 +186,14 @@ func newPageLoadParams(url values.String, arg core.Value) (PageLoadParams, error
 
 			res.DirectNavigation = bool(directNavigation.(values.Boolean))
 		}
+
+		fetch, err := parseFetchParams(obj)
+
+		if err != nil {
+			return res, err
+		}
+
+		res.Fetch = fetch
 
 		cookies, exists := obj.Get(values.NewString("cookies"))
 
@@ -650,4 +663,66 @@ func parseSimpleEvaluateArgs(value core.Value) (*drivers.EvaluateArgs, error) {
 	}
 
 	return args, nil
+}
+
+// parseFetchParams reads fetchMode and its pool settings. Returns nil when fetchMode is off,
+// defaults for the omitted fields are filled by the driver.
+func parseFetchParams(obj *values.Object) (*drivers.FetchParams, error) {
+	mode, exists := obj.Get(values.NewString("fetchMode"))
+
+	if !exists {
+		return nil, nil
+	}
+
+	if err := core.ValidateType(mode, types.Boolean); err != nil {
+		return nil, err
+	}
+
+	if !bool(mode.(values.Boolean)) {
+		return nil, nil
+	}
+
+	res := &drivers.FetchParams{}
+
+	key, exists := obj.Get(values.NewString("fetchPoolKey"))
+
+	if exists {
+		if err := core.ValidateType(key, types.String); err != nil {
+			return nil, err
+		}
+
+		res.PoolKey = key.String()
+	}
+
+	size, exists := obj.Get(values.NewString("fetchPoolSize"))
+
+	if exists {
+		if err := core.ValidateType(size, types.Int); err != nil {
+			return nil, err
+		}
+
+		res.PoolSize = int(size.(values.Int))
+	}
+
+	maxUses, exists := obj.Get(values.NewString("fetchMaxUses"))
+
+	if exists {
+		if err := core.ValidateType(maxUses, types.Int); err != nil {
+			return nil, err
+		}
+
+		res.MaxUses = int(maxUses.(values.Int))
+	}
+
+	maxAge, exists := obj.Get(values.NewString("fetchMaxAge"))
+
+	if exists {
+		if err := core.ValidateType(maxAge, types.Int); err != nil {
+			return nil, err
+		}
+
+		res.MaxAge = time.Duration(maxAge.(values.Int)) * time.Millisecond
+	}
+
+	return res, nil
 }

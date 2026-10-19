@@ -3,6 +3,7 @@ package cdp
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/MontFerret/ferret/pkg/runtime/core"
 
@@ -38,6 +39,10 @@ type Driver struct {
 	session   *session.Manager
 	contextID browser.ContextID
 	options   *Options
+
+	fetchMu    sync.Mutex
+	fetchPools map[string]*fetchPool
+	fetchStop  chan struct{}
 }
 
 func NewDriver(opts ...Option) *Driver {
@@ -53,6 +58,10 @@ func (drv *Driver) Name() string {
 }
 
 func (drv *Driver) Open(ctx context.Context, params drivers.Params) (drivers.HTMLPage, error) {
+	if params.Fetch != nil {
+		return drv.openFetch(ctx, params)
+	}
+
 	logger := logging.FromContext(ctx)
 	conn, err := drv.createConnection(ctx, params)
 
@@ -96,7 +105,139 @@ func (drv *Driver) DoSimpleHTTPRequest(ctx context.Context, params drivers.Param
 	return nil, core.ErrNotSupported
 }
 
+// openFetch hands out an open tab from the fetchMode pool of the key. A reused tab is
+// returned as is: no navigation, so the query fetches from the page it left warmed up.
+// A new tab is opened the ordinary way, on params.URL.
+func (drv *Driver) openFetch(ctx context.Context, params drivers.Params) (drivers.HTMLPage, error) {
+	logger := logging.FromContext(ctx)
+	pool, key := drv.fetchPool(*params.Fetch, params.KeepCookies)
+
+	tab, err := pool.acquire(ctx, func(ctx context.Context) (fetchTab, error) {
+		conn, err := drv.createConnection(ctx, params)
+
+		if err != nil {
+			return nil, err
+		}
+
+		page, err := LoadHTMLPage(ctx, conn, drv.setDefaultParams(params))
+
+		if err != nil {
+			return nil, err
+		}
+
+		page.setRelease(func(page *HTMLPage) bool {
+			return pool.release(page)
+		})
+
+		logger.Debug().
+			Str("driver", drv.options.Name).
+			Str("fetch_pool", key).
+			Msg("opened a new fetchMode tab")
+
+		return page, nil
+	})
+
+	if err != nil {
+		logger.Error().
+			Err(err).
+			Str("driver", drv.options.Name).
+			Str("fetch_pool", key).
+			Msg("failed to get a fetchMode tab")
+
+		return nil, err
+	}
+
+	return tab.(*HTMLPage), nil
+}
+
+// fetchPool returns the pool of the key. Size and limits are taken from the first
+// DOCUMENT() that created the pool. Tabs opened with keepCookies live in the default
+// browser context and incognito ones in the driver's context, so they never share a pool.
+func (drv *Driver) fetchPool(params drivers.FetchParams, keepCookies bool) (*fetchPool, string) {
+	key := params.PoolKey
+
+	if key == "" {
+		key = defaultFetchPoolKey
+	}
+
+	poolKey := key
+
+	if keepCookies {
+		poolKey += "\x00keepCookies"
+	}
+
+	drv.fetchMu.Lock()
+	defer drv.fetchMu.Unlock()
+
+	if drv.fetchPools == nil {
+		drv.fetchPools = make(map[string]*fetchPool)
+		drv.fetchStop = make(chan struct{})
+
+		go drv.sweepFetchPools(drv.fetchStop)
+	}
+
+	pool, exists := drv.fetchPools[poolKey]
+
+	if !exists {
+		pool = newFetchPool(params)
+		drv.fetchPools[poolKey] = pool
+	}
+
+	return pool, key
+}
+
+// sweepFetchPools closes idle and abandoned fetchMode tabs and forgets pools nobody asks
+// for, so rotating pool keys do not leave live tabs behind.
+func (drv *Driver) sweepFetchPools(stop <-chan struct{}) {
+	ticker := time.NewTicker(fetchSweepInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+		}
+
+		var gone []fetchTab
+
+		drv.fetchMu.Lock()
+
+		for key, pool := range drv.fetchPools {
+			tabs, empty := pool.sweep()
+			gone = append(gone, tabs...)
+
+			if empty {
+				delete(drv.fetchPools, key)
+			}
+		}
+
+		drv.fetchMu.Unlock()
+
+		destroyAll(gone)
+	}
+}
+
+func (drv *Driver) closeFetchPools() {
+	drv.fetchMu.Lock()
+	pools := drv.fetchPools
+	stop := drv.fetchStop
+	drv.fetchPools = nil
+	drv.fetchStop = nil
+	drv.fetchMu.Unlock()
+
+	if stop != nil {
+		close(stop)
+	}
+
+	for _, pool := range pools {
+		pool.close()
+	}
+}
+
 func (drv *Driver) Close() error {
+	drv.closeFetchPools()
+
 	drv.mu.Lock()
 	defer drv.mu.Unlock()
 
@@ -236,7 +377,10 @@ func (drv *Driver) init(ctx context.Context) error {
 			return nil
 		}
 
-		createCtx, err := bc.Target.CreateBrowserContext(ctx, &target.CreateBrowserContextArgs{})
+		// Chrome disposes the context with all its tabs when this connection drops, e.g. the
+		// process exits without Close. Otherwise tabs stay open in a shared browser after
+		// every restart — fetchMode tabs keep running page scripts until Chrome restarts.
+		createCtx, err := bc.Target.CreateBrowserContext(ctx, (&target.CreateBrowserContextArgs{}).SetDisposeOnDetach(true))
 
 		if err != nil {
 			bconn.Close()
