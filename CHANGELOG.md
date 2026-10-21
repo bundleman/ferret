@@ -14,7 +14,7 @@
   - Pool size and limits are taken from the first `DOCUMENT()` that created the pool of the key. Opening the same key twice in one query with `fetchPoolSize` 1 waits for itself until `timeout`.
 
 ### Changed
-- Runtime: a value assigned to several variables is closed once at the end of the query. Before, it was closed once per variable; for a `fetchMode` tab the second `Close` could hand back a tab that another query had taken in the meantime. Only pointers are checked, through a set, so registering a value stays O(1): 50,000 values register in ~11 ms (3–5 ms before, 2.8 s with a linear search).
+- Runtime: a value assigned to several variables is closed once at the end of the query. Before, it was closed once per variable; for a `fetchMode` tab the second `Close` could hand back a tab that another query had taken in the meantime. Only pointers are checked, through a set, so registering a value stays O(1): 50,000 values register in ~11 ms against 3–5 ms before.
 - CDP driver: the incognito browser context is created with `disposeOnDetach`, so Chrome disposes it with all its tabs when the driver's connection drops (the process exits or crashes without `Close`). Before, such tabs stayed open in a shared browser after every restart of the caller; with `fetchMode` they are live pages that keep running scripts. Checked on a live browser: a process that exits without `Close` leaves no tabs behind. A driver created with `WithKeepCookies()` uses the default context and is not affected.
 
 ### Fixed
