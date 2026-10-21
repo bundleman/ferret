@@ -153,6 +153,12 @@ func (drv *Driver) createConnection(ctx context.Context, params drivers.Params) 
 	conn, err := drv.session.Dial(ctx, createTarget.TargetID)
 
 	if err != nil {
+		// The tab exists but nothing is attached to it. ctx may be the very reason Dial
+		// failed, so the tab is closed on a context of its own.
+		closeCtx, cancel := context.WithTimeout(context.Background(), pageCloseTimeout)
+		_, _ = drv.client.Target.CloseTarget(closeCtx, target.NewCloseTargetArgs(createTarget.TargetID))
+		cancel()
+
 		return nil, errors.Wrap(err, "establish a new connection")
 	}
 

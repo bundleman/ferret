@@ -56,15 +56,12 @@ func LoadHTMLPage(
 	}
 
 	client := cdp.NewClient(conn)
-	if err := enableFeatures(ctx, client, params); err != nil {
-		return nil, err
-	}
-
 	closers := make([]io.Closer, 0, 4)
 
+	// Registered before the first call that can fail, so a failed load never leaves the tab open.
 	defer func() {
 		if err != nil {
-			if closeErr := client.Page.Close(context.Background()); closeErr != nil {
+			if closeErr := closePage(client); closeErr != nil {
 				// A failed navigation may leave the tab on Chrome's error page with the session
 				// no longer attached to a page: Page.close fails and the tab stays open for good.
 				// Closing the target itself works in any state.
@@ -83,6 +80,10 @@ func LoadHTMLPage(
 			common.CloseAll(logger, closers, "failed to close a Page resource")
 		}
 	}()
+
+	if err = enableFeatures(ctx, client, params); err != nil {
+		return nil, err
+	}
 
 	netOpts := net.Options{
 		Headers: params.Headers,
@@ -162,9 +163,21 @@ func LoadHTMLPage(
 	return p, nil
 }
 
+// pageCloseTimeout bounds closing a tab: a tab that does not answer must not hold up the
+// caller that closes it.
+const pageCloseTimeout = 5 * time.Second
+
+// closePage closes the tab the client's session is attached to with Page.close.
+func closePage(client *cdp.Client) error {
+	ctx, cancel := context.WithTimeout(context.Background(), pageCloseTimeout)
+	defer cancel()
+
+	return client.Page.Close(ctx)
+}
+
 // closeOwnTarget closes the tab the client's session is attached to.
 func closeOwnTarget(client *cdp.Client) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), pageCloseTimeout)
 	defer cancel()
 
 	info, err := client.Target.GetTargetInfo(ctx, target.NewGetTargetInfoArgs())
@@ -338,7 +351,7 @@ func (p *HTMLPage) Close() error {
 			Msg("failed to close network manager")
 	}
 
-	err = p.client.Page.Close(context.Background())
+	err = closePage(p.client)
 
 	if err != nil {
 		// Same as after a failed load: once the tab has navigated to Chrome's error page,
