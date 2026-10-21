@@ -22,6 +22,8 @@
 
 ### Fixed
 - CDP driver: a tab that ended up on Chrome's error page was never closed. After a failed navigation (e.g. `net::ERR_HTTP_RESPONSE_CODE_FAILURE` on a 403 with an empty body) Chrome swaps the tab to its error page and `Page.close` answers "Not attached to an active page", so the tab stayed open for good. Now the target itself is closed with `Target.closeTarget` when `Page.close` fails, both when the first load of `DOCUMENT()` fails and when a page is closed at the end of a query. If the tab cannot be closed either way, a warning with the load error and both close errors is logged; before, the close error was built without a message and zerolog dropped it. On a live browser: 3 failed loads and 3 pages closed on an error page left 6 tabs open before the fix and none after. In production the Wildberries bundles collected 200–750 such tabs between restarts and were OOM-killed every 25–40 minutes.
+- CDP driver: two more ways a tab was left open. If enabling the CDP domains of a new tab failed, `LoadHTMLPage` returned before its cleanup was registered, so neither the tab nor its connection was closed; the cleanup is now registered first. If attaching to a just created tab (`session.Dial`) failed, the tab stayed open; it is now closed with `Target.closeTarget` on a context of its own, since the query's context may be what made the attach fail.
+- CDP driver: `Page.close` had no time limit. It now gives up after 5 seconds, like the `Target.closeTarget` fallback, so a tab that does not answer cannot hold up whoever closes it.
 
 ### 0.18.0-r.5
 
