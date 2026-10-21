@@ -56,11 +56,11 @@ type PageLoadParams struct {
 // @param {Object} [params.evaluateArgs] - Set of parameters to add evaluate arguments.
 // @param {String} [params.evaluateArgs.expression] - JS script for execution.
 // @param {Boolean} [params.evaluateArgs.onEveryNewDocument=false] - (only CDPDriver) When true, the script is registered via Page.addScriptToEvaluateOnNewDocument and runs on every new document (initial load, back/forward, reload, client-side redirect) before any page scripts. When false, the script is executed once via Runtime.Evaluate after Navigate().
-// @param {Boolean} [params.fetchMode=false] - (only CDPDriver) Keep the tab open after the query: it goes back to a pool, and the next DOCUMENT() with the same fetchPoolKey gets this tab as is, without navigation. For fetching data from inside an already warmed page. Assign the document to a variable (LET), otherwise the tab is not returned to the pool. Other params apply only when a new tab is opened.
+// @param {Boolean} [params.fetchMode=false] - (only CDPDriver) Keep the tab open after the query: it goes back to a pool, and the next DOCUMENT() with the same fetchPoolKey gets this tab as is, without navigation. For fetching data from inside an already warmed page. Assign the document to a variable (LET), otherwise the tab is not returned to the pool. Other params apply only when a new tab is opened. A query must be done with the tab within 10 minutes: after that the tab is taken back and closed even if the query still uses it.
 // @param {String} [params.fetchPoolKey="default"] - (only CDPDriver) Pool key for fetchMode tabs, e.g. a proxy or a region.
 // @param {Int} [params.fetchPoolSize=1] - (only CDPDriver) Maximum open tabs per fetchPoolKey. A query waits for a free tab up to params.timeout.
 // @param {Int} [params.fetchMaxUses=500] - (only CDPDriver) Queries served by a tab before it is closed and reopened.
-// @param {Int} [params.fetchMaxAge=1800000] - (only CDPDriver) Tab lifetime in milliseconds before it is closed and reopened.
+// @param {Int} [params.fetchMaxAge=1800] - (only CDPDriver) Tab lifetime in seconds before it is closed and reopened. Unlike params.timeout, which is in milliseconds.
 // @return {HTMLPage} - Loaded HTML page.
 func Open(ctx context.Context, args ...core.Value) (core.Value, error) {
 	err := core.ValidateArgs(args, 1, 2)
@@ -721,7 +721,7 @@ func parseFetchParams(obj *values.Object) (*drivers.FetchParams, error) {
 			return nil, err
 		}
 
-		res.MaxAge = time.Duration(maxAge.(values.Int)) * time.Millisecond
+		res.MaxAge = time.Duration(maxAge.(values.Int)) * time.Second
 	}
 
 	return res, nil

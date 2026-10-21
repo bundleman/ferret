@@ -134,6 +134,8 @@ func (pool *fetchPool) acquire(ctx context.Context, open func(ctx context.Contex
 
 		// every tab is taken: a lease its query never returned frees its slot
 		if stale := pool.staleLeasesLocked(); len(stale) > 0 {
+			// more slots may be free than this query needs
+			pool.notifyLocked()
 			pool.mu.Unlock()
 			destroyAll(stale)
 
@@ -271,9 +273,28 @@ func (pool *fetchPool) close() {
 func (pool *fetchPool) putBack(entry *fetchEntry) {
 	pool.mu.Lock()
 	delete(pool.leased, entry.tab)
-	pool.idle = append(pool.idle, entry)
+
+	// the pool may have been closed while the tab was out: nobody would close it then
+	closed := pool.closed
+
+	if !closed {
+		pool.idle = append(pool.idle, entry)
+	}
+
 	pool.notifyLocked()
 	pool.mu.Unlock()
+
+	if closed {
+		_ = entry.tab.destroy()
+	}
+}
+
+// touch marks the pool as asked for, so the sweeper does not drop it.
+func (pool *fetchPool) touch() {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+
+	pool.lastUsed = pool.now()
 }
 
 func (pool *fetchPool) drop(entry *fetchEntry) {

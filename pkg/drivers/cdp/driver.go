@@ -40,9 +40,10 @@ type Driver struct {
 	contextID browser.ContextID
 	options   *Options
 
-	fetchMu    sync.Mutex
-	fetchPools map[string]*fetchPool
-	fetchStop  chan struct{}
+	fetchMu     sync.Mutex
+	fetchPools  map[string]*fetchPool
+	fetchStop   chan struct{}
+	fetchClosed bool
 }
 
 func NewDriver(opts ...Option) *Driver {
@@ -110,9 +111,17 @@ func (drv *Driver) DoSimpleHTTPRequest(ctx context.Context, params drivers.Param
 // A new tab is opened the ordinary way, on params.URL.
 func (drv *Driver) openFetch(ctx context.Context, params drivers.Params) (drivers.HTMLPage, error) {
 	logger := logging.FromContext(ctx)
-	pool, key := drv.fetchPool(*params.Fetch, params.KeepCookies)
+	pool, key, err := drv.fetchPool(*params.Fetch, params.KeepCookies)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// set by the open callback, which acquire runs in this goroutine
+	opened := false
 
 	tab, err := pool.acquire(ctx, func(ctx context.Context) (fetchTab, error) {
+		opened = true
 		conn, err := drv.createConnection(ctx, params)
 
 		if err != nil {
@@ -147,13 +156,32 @@ func (drv *Driver) openFetch(ctx context.Context, params drivers.Params) (driver
 		return nil, err
 	}
 
-	return tab.(*HTMLPage), nil
+	page := tab.(*HTMLPage)
+
+	// A reused tab keeps what it was opened with: logged, so a query that silently got
+	// a tab meant for another URL can be spotted.
+	if !opened {
+		tabURL := ""
+
+		if doc := page.getCurrentDocument(); doc != nil {
+			tabURL = doc.GetURL().String()
+		}
+
+		logger.Debug().
+			Str("driver", drv.options.Name).
+			Str("fetch_pool", key).
+			Str("url", params.URL).
+			Str("tab_url", tabURL).
+			Msg("reused a fetchMode tab")
+	}
+
+	return page, nil
 }
 
 // fetchPool returns the pool of the key. Size and limits are taken from the first
 // DOCUMENT() that created the pool. Tabs opened with keepCookies live in the default
 // browser context and incognito ones in the driver's context, so they never share a pool.
-func (drv *Driver) fetchPool(params drivers.FetchParams, keepCookies bool) (*fetchPool, string) {
+func (drv *Driver) fetchPool(params drivers.FetchParams, keepCookies bool) (*fetchPool, string, error) {
 	key := params.PoolKey
 
 	if key == "" {
@@ -169,6 +197,11 @@ func (drv *Driver) fetchPool(params drivers.FetchParams, keepCookies bool) (*fet
 	drv.fetchMu.Lock()
 	defer drv.fetchMu.Unlock()
 
+	// after Close a new pool would restart the sweeper and open tabs nobody closes
+	if drv.fetchClosed {
+		return nil, key, errFetchPoolClosed
+	}
+
 	if drv.fetchPools == nil {
 		drv.fetchPools = make(map[string]*fetchPool)
 		drv.fetchStop = make(chan struct{})
@@ -183,7 +216,10 @@ func (drv *Driver) fetchPool(params drivers.FetchParams, keepCookies bool) (*fet
 		drv.fetchPools[poolKey] = pool
 	}
 
-	return pool, key
+	// marked while fetchMu is held, so the sweeper cannot drop the pool before acquire
+	pool.touch()
+
+	return pool, key, nil
 }
 
 // sweepFetchPools closes idle and abandoned fetchMode tabs and forgets pools nobody asks
@@ -224,6 +260,7 @@ func (drv *Driver) closeFetchPools() {
 	stop := drv.fetchStop
 	drv.fetchPools = nil
 	drv.fetchStop = nil
+	drv.fetchClosed = true
 	drv.fetchMu.Unlock()
 
 	if stop != nil {

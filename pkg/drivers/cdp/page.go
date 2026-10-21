@@ -373,6 +373,11 @@ func (p *HTMLPage) destroy() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	// the pool may have destroyed an abandoned lease before its query closes the page
+	if p.closed == values.True {
+		return nil
+	}
+
 	var url string
 	frame := p.dom.GetMainFrame()
 

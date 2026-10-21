@@ -398,13 +398,114 @@ func TestFetchPool(t *testing.T) {
 		drv := NewDriver()
 		defer drv.closeFetchPools()
 
-		incognito, key := drv.fetchPool(drivers.FetchParams{PoolKey: "wb"}, false)
-		kept, keptKey := drv.fetchPool(drivers.FetchParams{PoolKey: "wb"}, true)
-		same, _ := drv.fetchPool(drivers.FetchParams{PoolKey: "wb"}, false)
+		incognito, key, _ := drv.fetchPool(drivers.FetchParams{PoolKey: "wb"}, false)
+		kept, keptKey, _ := drv.fetchPool(drivers.FetchParams{PoolKey: "wb"}, true)
+		same, _, _ := drv.fetchPool(drivers.FetchParams{PoolKey: "wb"}, false)
 
 		So(kept, ShouldNotEqual, incognito)
 		So(same, ShouldEqual, incognito)
 		So(key, ShouldEqual, "wb")
 		So(keptKey, ShouldEqual, "wb")
+	})
+	Convey("Should wake waiting queries after taking back abandoned leases", t, func() {
+		pool := newFetchPool(drivers.FetchParams{PoolSize: 2})
+
+		var mu sync.Mutex
+		now := time.Now()
+		pool.now = func() time.Time {
+			mu.Lock()
+			defer mu.Unlock()
+
+			return now
+		}
+		opener := &fakeOpener{}
+
+		_, _ = pool.acquire(ctx, opener.open)
+		_, _ = pool.acquire(ctx, opener.open)
+
+		got := make(chan fetchTab, 1)
+
+		go func() {
+			waitCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			defer cancel()
+
+			tab, _ := pool.acquire(waitCtx, opener.open)
+			got <- tab
+		}()
+
+		select {
+		case <-got:
+			t.Fatal("the query must wait while both tabs are leased")
+		case <-time.After(50 * time.Millisecond):
+		}
+
+		mu.Lock()
+		now = now.Add(defaultFetchMaxLease)
+		mu.Unlock()
+
+		// takes back both abandoned leases and one of the two freed slots
+		_, err := pool.acquire(ctx, opener.open)
+		So(err, ShouldBeNil)
+
+		select {
+		case tab := <-got:
+			So(tab, ShouldNotBeNil)
+		case <-time.After(time.Second):
+			t.Fatal("the waiting query was not woken while a slot was free")
+		}
+	})
+
+	Convey("Should destroy a tab put back into a closed pool", t, func() {
+		pool := newFetchPool(drivers.FetchParams{})
+		opener := &fakeOpener{}
+
+		tab, _ := pool.acquire(ctx, opener.open)
+		pool.mu.Lock()
+		entry := pool.leased[tab]
+		pool.mu.Unlock()
+
+		pool.close()
+		pool.putBack(entry)
+
+		So(tab.(*fakeTab).destroyedTimes(), ShouldEqual, 1)
+		So(pool.isIdleLocked(tab), ShouldBeFalse)
+	})
+
+	Convey("Should not let the sweeper drop a pool the driver just handed out", t, func() {
+		drv := NewDriver()
+		defer drv.closeFetchPools()
+
+		pool, _, err := drv.fetchPool(drivers.FetchParams{PoolKey: "rare"}, false)
+		So(err, ShouldBeNil)
+
+		var mu sync.Mutex
+		now := time.Now()
+		pool.mu.Lock()
+		pool.now = func() time.Time {
+			mu.Lock()
+			defer mu.Unlock()
+
+			return now
+		}
+		pool.mu.Unlock()
+
+		mu.Lock()
+		now = now.Add(2 * defaultFetchMaxIdle)
+		mu.Unlock()
+
+		again, _, err := drv.fetchPool(drivers.FetchParams{PoolKey: "rare"}, false)
+		So(err, ShouldBeNil)
+		So(again, ShouldEqual, pool)
+
+		_, empty := pool.sweep()
+		So(empty, ShouldBeFalse)
+	})
+
+	Convey("Should refuse new fetchMode pools after the driver is closed", t, func() {
+		drv := NewDriver()
+		drv.closeFetchPools()
+
+		_, _, err := drv.fetchPool(drivers.FetchParams{PoolKey: "wb"}, false)
+		So(errors.Is(err, errFetchPoolClosed), ShouldBeTrue)
 	})
 }
