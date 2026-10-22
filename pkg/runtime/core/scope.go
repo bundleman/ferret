@@ -2,6 +2,7 @@ package core
 
 import (
 	"io"
+	"reflect"
 )
 
 type (
@@ -10,6 +11,7 @@ type (
 	RootScope struct {
 		closed      bool
 		disposables []io.Closer
+		registered  map[io.Closer]struct{}
 	}
 
 	Scope struct {
@@ -23,6 +25,7 @@ func NewRootScope() (*Scope, CloseFunc) {
 	root := &RootScope{
 		closed:      false,
 		disposables: make([]io.Closer, 0, 10),
+		registered:  make(map[io.Closer]struct{}),
 	}
 
 	return newScope(root, nil), root.Close
@@ -33,9 +36,23 @@ func (s *RootScope) AddDisposable(disposable io.Closer) {
 		return
 	}
 
-	if disposable != nil {
-		s.disposables = append(s.disposables, disposable)
+	if disposable == nil {
+		return
 	}
+
+	// A value assigned to several variables is closed once. A second Close of a fetchMode
+	// tab would hand back a tab that another query may have taken in the meantime.
+	// Only pointers are checked: comparing them never panics, and the set keeps every
+	// registration O(1), since a FOR over elements registers each of them.
+	if reflect.TypeOf(disposable).Kind() == reflect.Pointer {
+		if _, exists := s.registered[disposable]; exists {
+			return
+		}
+
+		s.registered[disposable] = struct{}{}
+	}
+
+	s.disposables = append(s.disposables, disposable)
 }
 
 func (s *RootScope) Close() error {

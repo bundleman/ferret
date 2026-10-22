@@ -1,5 +1,25 @@
 ## Changelog
 
+### 0.18.0-r.7
+
+### Added
+- `fetchMode` (CDP driver): new optional boolean flag on `DOCUMENT()` params. When `true`, the tab is not closed when the query ends: it goes back to a pool, and the next `DOCUMENT()` with the same `fetchPoolKey` gets this tab as is, without navigation. Lets a query fetch data from inside a page that is already warmed up (anti-bot token, cookies, local storage) instead of loading it again. Needed for Wildberries: the WBAAS token lives from 30 seconds to a few minutes, and loading the product page on every query costs 3–15 seconds, while a request from an open page takes ~0.1 second. Default `false`.
+  - `fetchPoolKey` (default `"default"`) groups tabs that can replace each other, e.g. a proxy. `fetchPoolSize` (default `1`) limits open tabs per key; a query that finds every tab busy waits for one up to `timeout`.
+  - A tab serves one query at a time. It is closed and reopened after `fetchMaxUses` queries (default `500`), after `fetchMaxAge` seconds (default 30 minutes; unlike `timeout`, which is in milliseconds), when it stops answering `Page.getFrameTree`, or when the previous query left it on Chrome's error page.
+  - The tab goes back to the pool when the runtime closes it at the end of the query, which happens only for a document assigned to a variable (`LET doc = DOCUMENT(...)`). A lease that is never returned is taken back after 10 minutes and the tab is closed. The limit applies to every lease: a query that holds a `fetchMode` tab for more than 10 minutes loses it, and its next calls on the page fail.
+  - Idle tabs are closed after 10 minutes without a query, and a pool nobody asked for in 10 minutes is dropped, so rotating pool keys do not leave live tabs behind.
+  - A new tab is opened the ordinary way on the `DOCUMENT()` URL, so `directNavigation` and other params apply to it. A reused tab keeps its URL, cookies, headers and the rest of the params it was opened with: refreshing it is up to the query (e.g. `NAVIGATE()`), and anything that must differ between queries belongs in `fetchPoolKey`. `keepCookies` tabs and incognito tabs never share a pool.
+  - A reused tab is logged at debug level with the pool key, the requested URL and the tab's current URL, so a query that got a tab meant for another URL can be spotted.
+  - A reused tab keeps the logger of the query that opened it: fields set with `runtime.WithLogFields` for later queries do not reach the page's own log records.
+  - Pool size and limits are taken from the first `DOCUMENT()` that created the pool of the key. Opening the same key twice in one query with `fetchPoolSize` 1 waits for itself until `timeout`.
+
+### Changed
+- Runtime: a value assigned to several variables is closed once at the end of the query. Before, it was closed once per variable; for a `fetchMode` tab the second `Close` could hand back a tab that another query had taken in the meantime. Only pointers are checked, through a set, so registering a value stays O(1): 50,000 values register in ~11 ms against 3–5 ms before.
+- CDP driver: the incognito browser context is created with `disposeOnDetach`, so Chrome disposes it with all its tabs when the driver's connection drops (the process exits or crashes without `Close`). Before, such tabs stayed open in a shared browser after every restart of the caller; with `fetchMode` they are live pages that keep running scripts. Checked on a live browser: a process that exits without `Close` leaves no tabs behind. A driver created with `WithKeepCookies()` uses the default context and is not affected.
+
+### Fixed
+- CDP driver, `fetchMode`: a tab left without a main frame (the root document reload after a navigation timed out) went back to the pool and every next query on it panicked on a nil document. The pool health check now drops such a tab and opens a new one.
+
 ### 0.18.0-r.6
 
 ### Fixed

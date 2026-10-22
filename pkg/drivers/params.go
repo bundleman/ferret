@@ -1,6 +1,9 @@
 package drivers
 
-import "io"
+import (
+	"io"
+	"time"
+)
 
 type (
 	ResourceFilter struct {
@@ -40,6 +43,21 @@ type (
 		EvaluateArgs      *EvaluateArgs
 		DisableRuntime    bool
 		DirectNavigation  bool
+		Fetch             *FetchParams
+	}
+
+	// FetchParams keeps a CDP tab open between queries: the page is not closed when the
+	// query ends but returned to a pool, and the next DOCUMENT() with the same key gets it
+	// as is, without navigation. Used to fetch data from inside an already warmed page.
+	FetchParams struct {
+		// PoolKey groups tabs that can replace each other, e.g. a proxy or a region.
+		PoolKey string
+		// PoolSize is the maximum number of open tabs per key.
+		PoolSize int
+		// MaxUses is how many queries a tab serves before it is closed and reopened.
+		MaxUses int
+		// MaxAge is how long a tab lives before it is closed and reopened.
+		MaxAge time.Duration
 	}
 
 	SimpleHTTPRequest struct {
