@@ -7,9 +7,11 @@ import (
 	"io"
 	"regexp"
 	"sync"
+	"time"
 
 	"github.com/mafredri/cdp"
 	"github.com/mafredri/cdp/protocol/page"
+	"github.com/mafredri/cdp/protocol/target"
 	"github.com/mafredri/cdp/rpcc"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
@@ -54,25 +56,34 @@ func LoadHTMLPage(
 	}
 
 	client := cdp.NewClient(conn)
-	if err := enableFeatures(ctx, client, params); err != nil {
-		return nil, err
-	}
-
 	closers := make([]io.Closer, 0, 4)
 
+	// Registered before the first call that can fail, so a failed load never leaves the tab open.
 	defer func() {
 		if err != nil {
-			if err := client.Page.Close(context.Background()); err != nil {
-				logger.Error().Err(err)
+			if closeErr := closePage(client); closeErr != nil {
+				// A failed navigation may leave the tab on Chrome's error page with the session
+				// no longer attached to a page: Page.close fails and the tab stays open for good.
+				// Closing the target itself works in any state.
+				if targetErr := closeOwnTarget(client); targetErr != nil {
+					logger.Warn().
+						Err(err).
+						AnErr("page_close", closeErr).
+						AnErr("close_target", targetErr).
+						Msg("failed to close browser page after a failed load")
+				}
 			}
 
-			if err := conn.Close(); err != nil {
-				logger.Error().Err(err)
-			}
+			// Ignore errors from the connection object, as Close does
+			conn.Close()
 
 			common.CloseAll(logger, closers, "failed to close a Page resource")
 		}
 	}()
+
+	if err = enableFeatures(ctx, client, params); err != nil {
+		return nil, err
+	}
 
 	netOpts := net.Options{
 		Headers: params.Headers,
@@ -150,6 +161,34 @@ func LoadHTMLPage(
 	}
 
 	return p, nil
+}
+
+// pageCloseTimeout bounds closing a tab: a tab that does not answer must not hold up the
+// caller that closes it.
+const pageCloseTimeout = 5 * time.Second
+
+// closePage closes the tab the client's session is attached to with Page.close.
+func closePage(client *cdp.Client) error {
+	ctx, cancel := context.WithTimeout(context.Background(), pageCloseTimeout)
+	defer cancel()
+
+	return client.Page.Close(ctx)
+}
+
+// closeOwnTarget closes the tab the client's session is attached to.
+func closeOwnTarget(client *cdp.Client) error {
+	ctx, cancel := context.WithTimeout(context.Background(), pageCloseTimeout)
+	defer cancel()
+
+	info, err := client.Target.GetTargetInfo(ctx, target.NewGetTargetInfoArgs())
+
+	if err != nil {
+		return err
+	}
+
+	_, err = client.Target.CloseTarget(ctx, target.NewCloseTargetArgs(info.TargetInfo.TargetID))
+
+	return err
 }
 
 func LoadHTMLPageWithContent(
@@ -312,13 +351,18 @@ func (p *HTMLPage) Close() error {
 			Msg("failed to close network manager")
 	}
 
-	err = p.client.Page.Close(context.Background())
+	err = closePage(p.client)
 
 	if err != nil {
-		p.logger.Warn().
-			Str("url", url).
-			Err(err).
-			Msg("failed to close browser page")
+		// Same as after a failed load: once the tab has navigated to Chrome's error page,
+		// Page.close fails but closing the target works
+		if cerr := closeOwnTarget(p.client); cerr != nil {
+			p.logger.Warn().
+				Str("url", url).
+				Err(err).
+				AnErr("close_target", cerr).
+				Msg("failed to close browser page")
+		}
 	}
 
 	// Ignore errors from the connection object
