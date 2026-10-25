@@ -55,3 +55,22 @@ func (m *mrger) Read(ctx context.Context) <-chan Message {
 func Merge(inputs ...Stream) Stream {
 	return &mrger{inputs}
 }
+
+// Send passes msg to a stream reader and reports whether it was taken. A reader that
+// went away after ctx was done no longer blocks the sending goroutine forever: the
+// goroutine of a stream nobody reads exits with ctx instead of leaking. A reader that
+// is already waiting still gets msg, even if ctx is done by then.
+func Send(ctx context.Context, ch chan<- Message, msg Message) bool {
+	select {
+	case ch <- msg:
+		return true
+	default:
+	}
+
+	select {
+	case ch <- msg:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}

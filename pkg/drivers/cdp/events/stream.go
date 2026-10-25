@@ -43,13 +43,13 @@ func (e *EventStream) Read(ctx context.Context) <-chan events.Message {
 				val, err := e.decoder(ctx, e.stream)
 
 				if err != nil {
-					ch <- events.WithErr(err)
+					events.Send(ctx, ch, events.WithErr(err))
 
 					return
 				}
 
-				if val != nil && val != values.None {
-					ch <- events.WithValue(val)
+				if val != nil && val != values.None && !events.Send(ctx, ch, events.WithValue(val)) {
+					return
 				}
 			}
 		}

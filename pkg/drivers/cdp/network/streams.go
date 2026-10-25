@@ -59,7 +59,7 @@ func (s *NavigationEventStream) Read(ctx context.Context) <-chan rtEvents.Messag
 
 				repl, err := s.onDoc.Recv()
 				if err != nil {
-					ch <- rtEvents.WithErr(err)
+					rtEvents.Send(ctx, ch, rtEvents.WithErr(err))
 					s.logger.Trace().Err(err).Msg("failed to read data from within document navigation event stream")
 
 					return
@@ -82,7 +82,9 @@ func (s *NavigationEventStream) Read(ctx context.Context) <-chan rtEvents.Messag
 
 				s.tail.Store(evt)
 
-				ch <- rtEvents.WithValue(&evt)
+				if !rtEvents.Send(ctx, ch, rtEvents.WithValue(&evt)) {
+					return
+				}
 
 			case <-s.onFrame.Ready():
 				if ctx.Err() != nil {
@@ -91,7 +93,7 @@ func (s *NavigationEventStream) Read(ctx context.Context) <-chan rtEvents.Messag
 
 				repl, err := s.onFrame.Recv()
 				if err != nil {
-					ch <- rtEvents.WithErr(err)
+					rtEvents.Send(ctx, ch, rtEvents.WithErr(err))
 					s.logger.Trace().Err(err).Msg("failed to read data from frame navigation event stream")
 
 					return
@@ -115,7 +117,9 @@ func (s *NavigationEventStream) Read(ctx context.Context) <-chan rtEvents.Messag
 
 				s.tail.Store(evt)
 
-				ch <- rtEvents.WithValue(&evt)
+				if !rtEvents.Send(ctx, ch, rtEvents.WithValue(&evt)) {
+					return
+				}
 			}
 		}
 	}()
