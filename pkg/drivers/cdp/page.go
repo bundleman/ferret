@@ -794,9 +794,16 @@ func (p *HTMLPage) awaitDirectNavigation(ctx context.Context) error {
 	}
 
 	if !committed {
-		for range stream.Read(ctx) {
+		// Only the first event is read, so the reading goroutine gets a context of its own
+		// and is stopped right after it instead of living until the query ends. Close still
+		// needs ctx to wait for the DOM.
+		readCtx, cancel := context.WithCancel(ctx)
+
+		for range stream.Read(readCtx) {
 			break
 		}
+
+		cancel()
 
 		if err := ctx.Err(); err != nil {
 			return err

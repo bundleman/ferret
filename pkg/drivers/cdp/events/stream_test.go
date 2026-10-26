@@ -1,7 +1,10 @@
 package events_test
 
 import (
+	"bytes"
 	"context"
+	"runtime"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,6 +19,8 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 )
+
+const eventStreamFrame = "events.(*EventStream).Read.func1"
 
 type (
 	TestStream struct {
@@ -79,7 +84,6 @@ func TestStreamReader(t *testing.T) {
 				stream.Emit(values.NewString("foo"))
 				stream.Emit(values.NewString("bar"))
 				stream.Emit(values.NewString("baz"))
-				cancel()
 			}()
 
 			data := make([]string, 0, 3)
@@ -88,11 +92,22 @@ func TestStreamReader(t *testing.T) {
 				return stream.(*TestStream).Recv()
 			})
 
-			for evt := range es.Read(ctx) {
+			ch := es.Read(ctx)
+
+			// ctx is done only after the reader took everything: a message sent once
+			// ctx is done is not guaranteed to be delivered anymore
+			for len(data) < 3 {
+				evt, ok := <-ch
+				So(ok, ShouldBeTrue)
 				So(evt.Err(), ShouldBeNil)
 				So(evt.Value(), ShouldNotBeNil)
 
 				data = append(data, evt.Value().String())
+			}
+
+			cancel()
+
+			for range ch {
 			}
 
 			So(data, ShouldResemble, []string{"foo", "bar", "baz"})
@@ -145,5 +160,88 @@ func TestStreamReader(t *testing.T) {
 
 			stream.AssertExpectations(t)
 		})
+
+		Convey("Should not leak the reading goroutine when nobody reads", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			stream := NewBufferedTestStream(1)
+			stream.On("Close", mock.Anything).Maybe().Return(nil)
+			stream.Emit(values.NewString("foo"))
+
+			decoded := make(chan struct{})
+			var once sync.Once
+			before := goroutinesWith(eventStreamFrame)
+
+			reader := events2.NewEventStream(stream, func(_ context.Context, stream rpcc.Stream) (core.Value, error) {
+				defer once.Do(func() { close(decoded) })
+
+				return stream.(*TestStream).Recv()
+			})
+
+			_ = reader.Read(ctx)
+
+			<-decoded
+			So(leakedSince(before, eventStreamFrame, 0), ShouldEqual, 1)
+			cancel()
+
+			So(leakedSince(before, eventStreamFrame, 2*time.Second), ShouldEqual, 0)
+		})
 	})
+}
+
+// goroutinesWith returns the ids of goroutines whose stack contains frame.
+func goroutinesWith(frame string) map[string]struct{} {
+	buf := make([]byte, 1<<16)
+
+	for {
+		n := runtime.Stack(buf, true)
+
+		if n < len(buf) {
+			buf = buf[:n]
+
+			break
+		}
+
+		buf = make([]byte, 2*len(buf))
+	}
+
+	ids := make(map[string]struct{})
+
+	for _, block := range bytes.Split(buf, []byte("\n\n")) {
+		if !bytes.Contains(block, []byte(frame)) {
+			continue
+		}
+
+		header := bytes.Fields(block)
+
+		if len(header) > 1 {
+			ids[string(header[1])] = struct{}{}
+		}
+	}
+
+	return ids
+}
+
+// leakedSince waits until every goroutine with frame that was not running before is
+// gone, up to the timeout, and returns how many are left. The stream channel is not
+// read meanwhile: a read would unblock a leaked send and hide the leak.
+func leakedSince(before map[string]struct{}, frame string, timeout time.Duration) int {
+	deadline := time.Now().Add(timeout)
+
+	for {
+		left := 0
+
+		for id := range goroutinesWith(frame) {
+			if _, old := before[id]; !old {
+				left++
+			}
+		}
+
+		if left == 0 || time.Now().After(deadline) {
+			return left
+		}
+
+		time.Sleep(5 * time.Millisecond)
+	}
 }

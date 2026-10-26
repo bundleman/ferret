@@ -1,5 +1,15 @@
 ## Changelog
 
+### 0.18.0-r.8
+
+### Fixed
+- CDP driver: the goroutine behind a navigation event stream leaked whenever its reader stopped reading. `WaitForNavigation` takes the first matching event, cancels its context and closes the stream; if the goroutine was waiting in `Recv` at that moment, `Recv` failed and the goroutine blocked forever sending the error into a channel nobody read. The same happened to a navigation event that arrived after a reader had taken the one it waited for, like the wait for a document commit with `directNavigation`, or a `history.pushState` of a single-page app. Both the frame and the within-document branches were affected. In production a pprof dump of the six downloader pods on 0.18.0-r.5 counted 22,000 of their 35,000 goroutines stuck on these sends, and the goroutines of a downloader pod grow with its age, ~300 an hour (2,400 → 13,000 in 36 hours on 0.18.0-r.7). The pods' memory grows along with them until they are OOM-killed at the 3 GB limit every 1.5–2 days; that this leak is what holds the memory is to be confirmed after the release. The stream now sends through the new `events.Send`, so the goroutine exits once its context is done.
+  - The goroutine of `WaitForNavigation` and of the `directNavigation` commit wait now exits as soon as they return: the latter reads the stream on a context of its own and cancels it right after the first event, as `WaitForNavigation` does on return. `WAITFOR EVENT` cancels its own context when it returns, which releases the goroutine as well.
+- CDP driver: the generic CDP event stream behind `WAITFOR EVENT` had the same blocking send and now uses `events.Send` too.
+
+### Changed
+- Event streams of the CDP driver: a message is handed to a reader that is waiting for it, even if the context is done by then, but a message sent after the context is done while nobody is reading is dropped instead of blocking the stream's goroutine. Before, every message was eventually delivered to a reader that came back for it after the context was done.
+
 ### 0.18.0-r.7
 
 ### Added
