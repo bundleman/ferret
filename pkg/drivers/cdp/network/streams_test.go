@@ -145,6 +145,7 @@ func TestNavigationEventStream(t *testing.T) {
 			_ = newNavigationEventStream(zerolog.Nop(), nil, frame, silentDoc()).Read(ctx)
 
 			<-entered
+			So(leakedSince(before, navigationStreamFrame, 0), ShouldEqual, 1)
 			cancel()
 
 			So(leakedSince(before, navigationStreamFrame, 2*time.Second), ShouldEqual, 0)
@@ -178,6 +179,7 @@ func TestNavigationEventStream(t *testing.T) {
 			So(evt.Err(), ShouldBeNil)
 
 			<-second
+			So(leakedSince(before, navigationStreamFrame, 0), ShouldEqual, 1)
 			cancel()
 
 			So(leakedSince(before, navigationStreamFrame, 2*time.Second), ShouldEqual, 0)
@@ -201,6 +203,7 @@ func TestNavigationEventStream(t *testing.T) {
 			_ = newNavigationEventStream(zerolog.Nop(), nil, silentFrame(), doc).Read(ctx)
 
 			<-entered
+			So(leakedSince(before, navigationStreamFrame, 0), ShouldEqual, 1)
 			cancel()
 
 			So(leakedSince(before, navigationStreamFrame, 2*time.Second), ShouldEqual, 0)
@@ -234,6 +237,7 @@ func TestNavigationEventStream(t *testing.T) {
 			So(evt.Err(), ShouldBeNil)
 
 			<-second
+			So(leakedSince(before, navigationStreamFrame, 0), ShouldEqual, 1)
 			cancel()
 
 			So(leakedSince(before, navigationStreamFrame, 2*time.Second), ShouldEqual, 0)

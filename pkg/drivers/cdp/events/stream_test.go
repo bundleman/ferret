@@ -182,6 +182,7 @@ func TestStreamReader(t *testing.T) {
 			_ = reader.Read(ctx)
 
 			<-decoded
+			So(leakedSince(before, eventStreamFrame, 0), ShouldEqual, 1)
 			cancel()
 
 			So(leakedSince(before, eventStreamFrame, 2*time.Second), ShouldEqual, 0)

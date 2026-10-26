@@ -61,6 +61,8 @@ func Merge(inputs ...Stream) Stream {
 // goroutine of a stream nobody reads exits with ctx instead of leaking. A reader that
 // is already waiting still gets msg, even if ctx is done by then.
 func Send(ctx context.Context, ch chan<- Message, msg Message) bool {
+	// select picks a ready case at random, so try the send alone first: a waiting reader
+	// wins over a done ctx
 	select {
 	case ch <- msg:
 		return true
