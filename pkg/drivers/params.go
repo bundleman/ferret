@@ -43,7 +43,9 @@ type (
 		EvaluateArgs      *EvaluateArgs
 		DisableRuntime    bool
 		DirectNavigation  bool
-		Fetch             *FetchParams
+		// LazyAttach is set by directNavigation: {lazyAttach: {...}}, DirectNavigation is true then.
+		LazyAttach *LazyAttach
+		Fetch      *FetchParams
 	}
 
 	// FetchParams keeps a CDP tab open between queries: the page is not closed when the

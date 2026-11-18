@@ -32,7 +32,7 @@ func newNavigationEventStream(
 	client *cdp.Client,
 	onFrame page.FrameNavigatedClient,
 	onDoc page.NavigatedWithinDocumentClient,
-) rtEvents.Stream {
+) *NavigationEventStream {
 	es := new(NavigationEventStream)
 	es.logger = logger
 	es.client = client
@@ -125,6 +125,14 @@ func (s *NavigationEventStream) Read(ctx context.Context) <-chan rtEvents.Messag
 	}()
 
 	return ch
+}
+
+// Release stops the stream without waiting for the document, unlike Close.
+func (s *NavigationEventStream) Release() error {
+	_ = s.onFrame.Close()
+	_ = s.onDoc.Close()
+
+	return nil
 }
 
 func (s *NavigationEventStream) Close(ctx context.Context) error {

@@ -1,0 +1,20 @@
+LET url = @lab.cdn.static + '/overview.html'
+LET ua = "Ferret E2E lazyAttach"
+LET doc = DOCUMENT(url, {
+    driver: "cdp",
+    userAgent: ua,
+    viewport: { width: 1234, height: 700 },
+    evaluateArgs: {
+        expression: "document.documentElement.setAttribute('data-ua', navigator.userAgent); document.documentElement.setAttribute('data-width', String(window.innerWidth))"
+    },
+    directNavigation: { lazyAttach: { title: ["*"] } }
+})
+
+// The script may run before <body> is parsed, so it writes to the root element.
+LET root = ELEMENT(doc, 'html')
+
+// userAgent and viewport are applied when the tab is attached, before the one-shot evaluateArgs runs.
+T::EQ(ATTR_GET(root, 'data-ua'), { 'data-ua': ua })
+T::EQ(ATTR_GET(root, 'data-width'), { 'data-width': '1234' })
+
+RETURN NONE

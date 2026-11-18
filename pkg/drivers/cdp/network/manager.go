@@ -525,6 +525,18 @@ func (m *Manager) WaitForNavigation(ctx context.Context, opts WaitEventOptions) 
 }
 
 func (m *Manager) OnNavigation(ctx context.Context) (rtEvents.Stream, error) {
+	stream, err := m.OnNavigationEvents(ctx)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return stream, nil
+}
+
+// OnNavigationEvents is OnNavigation with the concrete stream, whose Release stops it without
+// waiting for the document.
+func (m *Manager) OnNavigationEvents(ctx context.Context) (*NavigationEventStream, error) {
 	m.logger.Trace().Msg("starting to wait for frame navigation event")
 
 	stream1, err := m.client.Page.FrameNavigated(ctx)
