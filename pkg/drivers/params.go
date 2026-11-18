@@ -46,6 +46,10 @@ type (
 		// LazyAttach is set by directNavigation: {lazyAttach: {...}}, DirectNavigation is true then.
 		LazyAttach *LazyAttach
 		Fetch      *FetchParams
+		// IsolatedContext opens the tab of the call in a browser context of its own, disposed
+		// together with the page. Acted on only by Open of the CDP driver, which refuses it with
+		// KeepCookies or Fetch; the HTTP driver and the page loaders of the cdp package ignore it.
+		IsolatedContext bool
 	}
 
 	// FetchParams keeps a CDP tab open between queries: the page is not closed when the

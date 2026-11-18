@@ -270,6 +270,7 @@ type lazyAttachReport struct {
 	url       string
 	targetID  target.ID
 	incognito bool
+	isolated  bool
 	verdict   lazyVerdict
 	committed string
 	ready     string
@@ -282,6 +283,7 @@ func newLazyAttachReport(params drivers.Params) *lazyAttachReport {
 	return &lazyAttachReport{
 		start:     time.Now(),
 		url:       params.URL,
+		isolated:  params.IsolatedContext,
 		verdict:   lazyVerdict{Reason: verdictBeforePoll},
 		committed: notReached,
 		ready:     notReached,
@@ -348,6 +350,7 @@ func (r *lazyAttachReport) log(logger zerolog.Logger, err error) {
 	logger.Info().
 		Str("target_id", string(r.targetID)).
 		Bool("incognito", r.incognito).
+		Bool("isolated", r.isolated).
 		Str("url", r.url).
 		Str("verdict", r.verdict.Reason).
 		Str("pattern", r.verdict.Pattern).

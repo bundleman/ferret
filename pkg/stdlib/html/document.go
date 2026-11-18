@@ -71,6 +71,7 @@ type PageLoadParams struct {
 // @param {Int} [params.fetchPoolSize=1] - (only CDPDriver) Maximum open tabs per fetchPoolKey. A query waits for a free tab up to params.timeout.
 // @param {Int} [params.fetchMaxUses=500] - (only CDPDriver) Queries served by a tab before it is closed and reopened.
 // @param {Int} [params.fetchMaxAge=1800] - (only CDPDriver) Tab lifetime in seconds before it is closed and reopened. Unlike params.timeout, which is in milliseconds.
+// @param {Boolean} [params.isolatedContext=false] - (only CDPDriver) Open the tab in a new browser context used by nothing else, so the cookies of the call do not mix with those of other tabs. The context is created before the tab, the cookies of the call go to it, and it is disposed when the page is closed, or at once if DOCUMENT() fails. Assign the document to a variable (LET), otherwise the page is not closed and its context stays until the driver disconnects. Each call starts with an empty cache. Not allowed together with keepCookies: true or fetchMode: true; such a conflict is checked for any driver and also written to the log at warn level with the URL.
 // @return {HTMLPage} - Loaded HTML page.
 func Open(ctx context.Context, args ...core.Value) (core.Value, error) {
 	err := core.ValidateArgs(args, 1, 2)
@@ -95,14 +96,22 @@ func Open(ctx context.Context, args ...core.Value) (core.Value, error) {
 		p, err := newPageLoadParams(url, args[1])
 
 		if err != nil {
-			// A query may swallow the error of DOCUMENT() with '?', so a broken lazyAttach would
-			// otherwise go unnoticed.
+			// A query may swallow the error of DOCUMENT() with '?', so a broken lazyAttach or
+			// isolatedContext would otherwise go unnoticed.
 			if errors.Is(err, errDirectNavigation) {
 				logger := logging.FromContext(ctx)
 				logger.Warn().
 					Err(err).
 					Str("url", url.String()).
 					Msg("failed to parse directNavigation of DOCUMENT()")
+			}
+
+			if errors.Is(err, errIsolatedContext) {
+				logger := logging.FromContext(ctx)
+				logger.Warn().
+					Err(err).
+					Str("url", url.String()).
+					Msg("failed to parse isolatedContext of DOCUMENT()")
 			}
 
 			return values.None, err
@@ -217,6 +226,14 @@ func newPageLoadParams(url values.String, arg core.Value) (PageLoadParams, error
 		}
 
 		res.Fetch = fetch
+
+		isolated, err := parseIsolatedContext(obj, res.KeepCookies, res.Fetch != nil)
+
+		if err != nil {
+			return res, err
+		}
+
+		res.IsolatedContext = isolated
 
 		cookies, exists := obj.Get(values.NewString("cookies"))
 
@@ -748,6 +765,37 @@ func parseFetchParams(obj *values.Object) (*drivers.FetchParams, error) {
 	}
 
 	return res, nil
+}
+
+// errIsolatedContext marks a conflict of isolatedContext with other params, so Open can log it.
+var errIsolatedContext = errors.New("isolatedContext")
+
+// parseIsolatedContext reads isolatedContext. An own context excludes the default one that
+// keepCookies: true works in, and a fetchMode tab outlives the query its context would go with.
+func parseIsolatedContext(obj *values.Object, keepCookies, fetchMode bool) (bool, error) {
+	value, exists := obj.Get(values.NewString("isolatedContext"))
+
+	if !exists {
+		return false, nil
+	}
+
+	if err := core.ValidateType(value, types.Boolean); err != nil {
+		return false, err
+	}
+
+	if !bool(value.(values.Boolean)) {
+		return false, nil
+	}
+
+	if keepCookies {
+		return false, fmt.Errorf("%w: cannot be used with keepCookies: true", errIsolatedContext)
+	}
+
+	if fetchMode {
+		return false, fmt.Errorf("%w: cannot be used with fetchMode: true", errIsolatedContext)
+	}
+
+	return true, nil
 }
 
 // errDirectNavigation marks an error of parsing the object form of directNavigation, so Open can

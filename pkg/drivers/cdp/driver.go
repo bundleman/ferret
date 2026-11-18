@@ -16,6 +16,7 @@ import (
 	"github.com/mafredri/cdp/rpcc"
 	"github.com/mafredri/cdp/session"
 	"github.com/pkg/errors"
+	"github.com/rs/zerolog"
 
 	"github.com/MontFerret/ferret/pkg/drivers"
 	net "github.com/MontFerret/ferret/pkg/drivers/cdp/network"
@@ -59,6 +60,15 @@ func (drv *Driver) Name() string {
 }
 
 func (drv *Driver) Open(ctx context.Context, params drivers.Params) (drivers.HTMLPage, error) {
+	// A Go caller bypasses the DOCUMENT() parser, which refuses these combinations too.
+	if params.IsolatedContext && params.KeepCookies {
+		return nil, core.Error(core.ErrInvalidArgument, "isolatedContext cannot be used with keepCookies: true")
+	}
+
+	if params.IsolatedContext && params.Fetch != nil {
+		return nil, core.Error(core.ErrInvalidArgument, "isolatedContext cannot be used with fetchMode: true")
+	}
+
 	if params.Fetch != nil {
 		return drv.openFetch(ctx, params)
 	}
@@ -75,8 +85,12 @@ func (drv *Driver) Open(ctx context.Context, params drivers.Params) (drivers.HTM
 }
 
 type (
-	// connectFunc opens a tab and attaches to it, as createConnection does.
-	connectFunc func(ctx context.Context, params drivers.Params, report *lazyAttachReport) (*rpcc.Conn, error)
+	// connectFunc opens a tab and attaches to it, as createConnection does. The tab goes to
+	// contextID when it is set, otherwise to the context of the driver.
+	connectFunc func(ctx context.Context, params drivers.Params, contextID browser.ContextID, report *lazyAttachReport) (*rpcc.Conn, error)
+	// isolateFunc creates the browser context of an isolatedContext call, as isolate does, and
+	// returns its id with the function that disposes it.
+	isolateFunc func(ctx context.Context, params drivers.Params) (browser.ContextID, func(), error)
 	// loadFunc loads the page of an attached tab, as loadHTMLPage does.
 	loadFunc func(ctx context.Context, conn *rpcc.Conn, params drivers.Params, report *lazyAttachReport) (*HTMLPage, error)
 	// openFunc opens a new tab with its page, as openPage does.
@@ -86,13 +100,17 @@ type (
 // openPage opens a new tab and loads a page in it, for Open and for a new fetchMode tab. A call
 // with lazyAttach writes one info record to the ferret log, also when it fails.
 func (drv *Driver) openPage(ctx context.Context, params drivers.Params, logConnErr bool) (*HTMLPage, error) {
-	return drv.openPageWith(ctx, params, logConnErr, drv.createConnection, loadHTMLPage)
+	return drv.openPageWith(ctx, params, logConnErr, drv.isolate, drv.createConnection, loadHTMLPage)
 }
 
+// openPageWith is the one place that decides on the context of an isolatedContext call: a call
+// that failed after the context was created disposes it at once, a page that loaded takes it
+// along and disposes it when it is closed.
 func (drv *Driver) openPageWith(
 	ctx context.Context,
 	params drivers.Params,
 	logConnErr bool,
+	isolate isolateFunc,
 	connect connectFunc,
 	load loadFunc,
 ) (page *HTMLPage, err error) {
@@ -104,14 +122,47 @@ func (drv *Driver) openPageWith(
 		report = newLazyAttachReport(params)
 		// Known before the driver is initialized, so a call that fails there is still written
 		// with the right flag.
-		report.setIncognito(!drv.options.KeepCookies && !params.KeepCookies)
+		report.setIncognito(params.IsolatedContext || (!drv.options.KeepCookies && !params.KeepCookies))
 
 		defer func() {
 			report.log(logger, err)
 		}()
 	}
 
-	conn, err := connect(ctx, params, report)
+	var contextID browser.ContextID
+
+	if params.IsolatedContext {
+		var dispose func()
+
+		contextID, dispose, err = isolate(ctx, params)
+
+		if err != nil {
+			report.fail(stagePrepare, err)
+
+			if logConnErr {
+				logger.Error().
+					Err(err).
+					Str("driver", drv.options.Name).
+					Msg("failed to create a new connection")
+			}
+
+			return nil, err
+		}
+
+		// Deferred after the record above, so it runs first: total_ms of a failed call includes
+		// the dispose.
+		defer func() {
+			if err == nil && page != nil {
+				page.setDispose(dispose)
+
+				return
+			}
+
+			dispose()
+		}()
+	}
+
+	conn, err := connect(ctx, params, contextID, report)
 
 	if err != nil {
 		if logConnErr {
@@ -130,7 +181,7 @@ func (drv *Driver) openPageWith(
 func (drv *Driver) Parse(ctx context.Context, params drivers.ParseParams) (drivers.HTMLPage, error) {
 	logger := logging.FromContext(ctx)
 
-	conn, err := drv.createConnection(ctx, drivers.Params{KeepCookies: true}, nil)
+	conn, err := drv.createConnection(ctx, drivers.Params{KeepCookies: true}, "", nil)
 
 	if err != nil {
 		logger.Error().
@@ -336,7 +387,12 @@ func (drv *Driver) Close() error {
 	return nil
 }
 
-func (drv *Driver) createConnection(ctx context.Context, params drivers.Params, report *lazyAttachReport) (*rpcc.Conn, error) {
+func (drv *Driver) createConnection(
+	ctx context.Context,
+	params drivers.Params,
+	contextID browser.ContextID,
+	report *lazyAttachReport,
+) (*rpcc.Conn, error) {
 	err := drv.init(ctx)
 
 	if err != nil {
@@ -345,13 +401,93 @@ func (drv *Driver) createConnection(ctx context.Context, params drivers.Params, 
 		return nil, errors.Wrap(err, "initialize driver")
 	}
 
-	return targetOpener{
+	return drv.opener(contextID).open(ctx, params, report)
+}
+
+// opener opens tabs in the context of the driver, or in contextID when it is set: the context of
+// an isolatedContext call, which is incognito whatever the driver options are.
+func (drv *Driver) opener(contextID browser.ContextID) targetOpener {
+	o := targetOpener{
 		targets:     drv.client.Target,
 		cookies:     drv.client.Storage,
 		dial:        drv.session.Dial,
 		contextID:   drv.contextID,
 		keepCookies: drv.options.KeepCookies,
-	}.open(ctx, params, report)
+	}
+
+	if contextID != "" {
+		o.contextID = contextID
+		o.keepCookies = false
+	}
+
+	return o
+}
+
+// isolate creates the browser context of an isolatedContext call. Chrome disposes it together
+// with its tabs if the connection of the driver drops.
+func (drv *Driver) isolate(ctx context.Context, params drivers.Params) (browser.ContextID, func(), error) {
+	if err := drv.init(ctx); err != nil {
+		return "", nil, errors.Wrap(err, "initialize driver")
+	}
+
+	if err := ctx.Err(); err != nil {
+		return "", nil, errors.Wrap(err, "create a browser context")
+	}
+
+	// The request may reach the browser even if ctx ends before the answer, and then the id
+	// would be lost with the context left behind. So the context is created on a context of its
+	// own and disposed at once if the call is over by then.
+	createCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), pageCloseTimeout)
+	defer cancel()
+
+	targets := drv.client.Target
+	reply, err := targets.CreateBrowserContext(createCtx, (&target.CreateBrowserContextArgs{}).SetDisposeOnDetach(true))
+
+	if err != nil {
+		return "", nil, errors.Wrap(err, "create a browser context")
+	}
+
+	id := reply.BrowserContextID
+	logger := logging.FromContext(ctx)
+	dispose := func() {
+		disposeContext(logger, targets, id, params.URL)
+	}
+
+	if err := ctx.Err(); err != nil {
+		dispose()
+
+		return "", nil, errors.Wrap(err, "create a browser context")
+	}
+
+	return id, dispose, nil
+}
+
+// contextDisposer is the part of the browser Target domain that disposes a browser context.
+type contextDisposer interface {
+	DisposeBrowserContext(context.Context, *target.DisposeBrowserContextArgs) error
+}
+
+// disposeContext disposes the browser context of an isolatedContext call on a context of its own,
+// because the context of the call may be done by then. A failure is a warn: a context left behind
+// holds browser processes and memory, and nothing else shows it. A closed browser connection is
+// not, because Chrome disposes the context itself then (disposeOnDetach).
+func disposeContext(logger zerolog.Logger, targets contextDisposer, id browser.ContextID, url string) {
+	ctx, cancel := context.WithTimeout(context.Background(), pageCloseTimeout)
+	defer cancel()
+
+	err := targets.DisposeBrowserContext(ctx, target.NewDisposeBrowserContextArgs(id))
+
+	var closed interface{ Closed() bool }
+
+	if err == nil || (errors.As(err, &closed) && closed.Closed()) {
+		return
+	}
+
+	logger.Warn().
+		Err(err).
+		Str("browser_context_id", string(id)).
+		Str("url", url).
+		Msg("failed to dispose an isolated browser context")
 }
 
 type (

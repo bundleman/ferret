@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mafredri/cdp/protocol/browser"
 	"github.com/mafredri/cdp/rpcc"
 
 	"github.com/MontFerret/ferret/pkg/drivers"
@@ -17,6 +18,15 @@ import (
 // openPageCtx returns a context whose ferret log goes to buf at level 0, as in production.
 func openPageCtx(buf *bytes.Buffer) context.Context {
 	return logging.WithContext(context.Background(), logging.Options{Writer: buf, Level: logging.Level(0)})
+}
+
+// noIsolate stands for the isolate step of a call without isolatedContext, which must not run.
+func noIsolate(t *testing.T) isolateFunc {
+	return func(context.Context, drivers.Params) (browser.ContextID, func(), error) {
+		t.Error("a call without isolatedContext creates no browser context")
+
+		return "", func() {}, nil
+	}
 }
 
 // lazyRecords returns the "lazyAttach document" records of the log.
@@ -48,7 +58,7 @@ func TestOpenPageOneRecordOnSuccess(t *testing.T) {
 	var buf bytes.Buffer
 	var steps []string
 
-	connect := func(_ context.Context, _ drivers.Params, report *lazyAttachReport) (*rpcc.Conn, error) {
+	connect := func(_ context.Context, _ drivers.Params, _ browser.ContextID, report *lazyAttachReport) (*rpcc.Conn, error) {
 		steps = append(steps, "connect")
 		report.setVerdict(lazyVerdict{Reason: verdictTitle, Pattern: "*"})
 
@@ -71,7 +81,7 @@ func TestOpenPageOneRecordOnSuccess(t *testing.T) {
 	params.Headers = drivers.NewHTTPHeadersWith(map[string][]string{"X-Test": {"1"}})
 	params.UserAgent = "UA"
 
-	page, err := NewDriver().openPageWith(openPageCtx(&buf), params, true, connect, load)
+	page, err := NewDriver().openPageWith(openPageCtx(&buf), params, true, noIsolate(t), connect, load)
 
 	if err != nil || page == nil {
 		t.Fatalf("got %v, %v", page, err)
@@ -93,7 +103,7 @@ func TestOpenPageOneRecordOnSuccess(t *testing.T) {
 func TestOpenPageRecordOnConnectError(t *testing.T) {
 	var buf bytes.Buffer
 
-	connect := func(_ context.Context, _ drivers.Params, report *lazyAttachReport) (*rpcc.Conn, error) {
+	connect := func(_ context.Context, _ drivers.Params, _ browser.ContextID, report *lazyAttachReport) (*rpcc.Conn, error) {
 		err := errors.New("failed to initialize driver")
 		report.fail(stagePrepare, err)
 
@@ -105,7 +115,7 @@ func TestOpenPageRecordOnConnectError(t *testing.T) {
 		return nil, nil
 	}
 
-	page, err := NewDriver().openPageWith(openPageCtx(&buf), lazyParams(lazyOpts(time.Second, 10*time.Millisecond, nil, []string{"*"})), true, connect, load)
+	page, err := NewDriver().openPageWith(openPageCtx(&buf), lazyParams(lazyOpts(time.Second, 10*time.Millisecond, nil, []string{"*"})), true, noIsolate(t), connect, load)
 
 	if err == nil || page != nil {
 		t.Fatalf("got %v, %v", page, err)
@@ -123,7 +133,7 @@ func TestOpenPageRecordOnLoadError(t *testing.T) {
 	var buf bytes.Buffer
 	failed := &HTMLPage{}
 
-	connect := func(_ context.Context, _ drivers.Params, report *lazyAttachReport) (*rpcc.Conn, error) {
+	connect := func(_ context.Context, _ drivers.Params, _ browser.ContextID, report *lazyAttachReport) (*rpcc.Conn, error) {
 		report.setVerdict(lazyVerdict{Reason: verdictTimeout})
 
 		return &rpcc.Conn{}, nil
@@ -139,7 +149,7 @@ func TestOpenPageRecordOnLoadError(t *testing.T) {
 	params := lazyParams(lazyOpts(time.Second, 10*time.Millisecond, nil, []string{"*"}))
 	params.KeepCookies = true
 
-	page, err := NewDriver().openPageWith(openPageCtx(&buf), params, true, connect, load)
+	page, err := NewDriver().openPageWith(openPageCtx(&buf), params, true, noIsolate(t), connect, load)
 
 	if !errors.Is(err, context.DeadlineExceeded) || page != failed {
 		t.Fatalf("got %v, %v: a failed load returns its page and error as before", page, err)
@@ -156,7 +166,7 @@ func TestOpenPageRecordOnLoadError(t *testing.T) {
 func TestOpenPageWithoutLazyAttachWritesNothing(t *testing.T) {
 	var buf bytes.Buffer
 
-	connect := func(_ context.Context, _ drivers.Params, report *lazyAttachReport) (*rpcc.Conn, error) {
+	connect := func(_ context.Context, _ drivers.Params, _ browser.ContextID, report *lazyAttachReport) (*rpcc.Conn, error) {
 		if report != nil {
 			t.Error("a call without lazyAttach has no report")
 		}
@@ -167,7 +177,7 @@ func TestOpenPageWithoutLazyAttachWritesNothing(t *testing.T) {
 		return &HTMLPage{}, nil
 	}
 
-	if _, err := NewDriver().openPageWith(openPageCtx(&buf), drivers.Params{URL: waitTestURL, DirectNavigation: true}, true, connect, load); err != nil {
+	if _, err := NewDriver().openPageWith(openPageCtx(&buf), drivers.Params{URL: waitTestURL, DirectNavigation: true}, true, noIsolate(t), connect, load); err != nil {
 		t.Fatal(err)
 	}
 
@@ -208,7 +218,7 @@ func TestOpenFetchPassesLazyAttachToNewTab(t *testing.T) {
 
 // TestOpenPageConnErrorLog: Open logs a failed connection as before, a new fetchMode tab does not.
 func TestOpenPageConnErrorLog(t *testing.T) {
-	connect := func(_ context.Context, _ drivers.Params, _ *lazyAttachReport) (*rpcc.Conn, error) {
+	connect := func(_ context.Context, _ drivers.Params, _ browser.ContextID, _ *lazyAttachReport) (*rpcc.Conn, error) {
 		return nil, errors.New("failed to initialize driver")
 	}
 	load := func(_ context.Context, _ *rpcc.Conn, _ drivers.Params, _ *lazyAttachReport) (*HTMLPage, error) {
@@ -218,7 +228,7 @@ func TestOpenPageConnErrorLog(t *testing.T) {
 	for _, logConnErr := range []bool{true, false} {
 		var buf bytes.Buffer
 
-		_, _ = NewDriver().openPageWith(openPageCtx(&buf), drivers.Params{URL: waitTestURL}, logConnErr, connect, load)
+		_, _ = NewDriver().openPageWith(openPageCtx(&buf), drivers.Params{URL: waitTestURL}, logConnErr, noIsolate(t), connect, load)
 
 		if got := bytes.Contains(buf.Bytes(), []byte("failed to create a new connection")); got != logConnErr {
 			t.Errorf("logConnErr %v: record %v", logConnErr, got)

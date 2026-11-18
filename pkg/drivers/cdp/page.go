@@ -46,6 +46,8 @@ type (
 		evaluateArgs *drivers.EvaluateArgs
 		// release returns a fetchMode tab to its pool instead of closing it
 		release func(page *HTMLPage) bool
+		// dispose disposes the browser context of an isolatedContext page
+		dispose func()
 	}
 )
 
@@ -407,6 +409,13 @@ func (p *HTMLPage) setRelease(release func(page *HTMLPage) bool) {
 	p.release = release
 }
 
+func (p *HTMLPage) setDispose(dispose func()) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.dispose = dispose
+}
+
 func (p *HTMLPage) destroy() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -459,6 +468,11 @@ func (p *HTMLPage) destroy() error {
 
 	// Ignore errors from the connection object
 	p.conn.Close()
+
+	// The context of an isolatedContext page goes after its tab, also when closing the tab failed.
+	if p.dispose != nil {
+		p.dispose()
+	}
 
 	return nil
 }
