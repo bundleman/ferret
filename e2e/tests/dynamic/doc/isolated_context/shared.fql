@@ -1,0 +1,29 @@
+LET url = @lab.cdn.dynamic
+LET docA = DOCUMENT(url, {
+    driver: "cdp",
+    cookies: [{ name: "x-e2e-shared-a", value: "a" }]
+})
+LET docB = DOCUMENT(url, {
+    driver: "cdp",
+    cookies: [{ name: "x-e2e-shared-b", value: "b" }]
+})
+LET docC = DOCUMENT(url, {
+    driver: "cdp",
+    directNavigation: true,
+    cookies: [{ name: "x-e2e-shared-direct-c", value: "c" }]
+})
+LET docD = DOCUMENT(url, {
+    driver: "cdp",
+    directNavigation: true,
+    cookies: [{ name: "x-e2e-shared-direct-d", value: "d" }]
+})
+
+// Control for cookies.fql and direct.fql: without isolatedContext all tabs share the incognito
+// context of the driver, so each page sees the cookies of the others. If this fails, the two
+// tests prove nothing.
+T::EQ(COOKIE_GET(docA, "x-e2e-shared-b").value, "b")
+T::EQ(COOKIE_GET(docB, "x-e2e-shared-a").value, "a")
+T::EQ(COOKIE_GET(docC, "x-e2e-shared-direct-d").value, "d")
+T::EQ(COOKIE_GET(docD, "x-e2e-shared-direct-c").value, "c")
+
+RETURN NONE

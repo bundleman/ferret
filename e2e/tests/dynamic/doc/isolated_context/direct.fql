@@ -1,0 +1,35 @@
+LET url = @lab.cdn.dynamic
+LET docA = DOCUMENT(url, {
+    driver: "cdp",
+    isolatedContext: true,
+    directNavigation: true,
+    cookies: [{ name: "x-e2e-isolated-direct-a", value: "a" }]
+})
+LET docB = DOCUMENT(url, {
+    driver: "cdp",
+    isolatedContext: true,
+    directNavigation: true,
+    cookies: [{ name: "x-e2e-isolated-direct-b", value: "b" }]
+})
+
+LET docShared = DOCUMENT(url, {
+    driver: "cdp",
+    directNavigation: true,
+    cookies: [{ name: "x-e2e-isolated-direct-shared", value: "s" }]
+})
+
+// With directNavigation the cookies go to the browser context before the tab exists: to the own
+// context of each call, not to the one of the driver.
+T::EQ(COOKIE_GET(docA, "x-e2e-isolated-direct-a").value, "a")
+T::EQ(COOKIE_GET(docB, "x-e2e-isolated-direct-b").value, "b")
+T::NONE(COOKIE_GET(docA, "x-e2e-isolated-direct-b"))
+T::NONE(COOKIE_GET(docB, "x-e2e-isolated-direct-a"))
+
+// A third tab without the param lives in the shared incognito context of the driver: it sees
+// neither cookie, so neither call above went to that context, and they do not see its cookie.
+T::NONE(COOKIE_GET(docShared, "x-e2e-isolated-direct-a"))
+T::NONE(COOKIE_GET(docShared, "x-e2e-isolated-direct-b"))
+T::NONE(COOKIE_GET(docA, "x-e2e-isolated-direct-shared"))
+T::NONE(COOKIE_GET(docB, "x-e2e-isolated-direct-shared"))
+
+RETURN NONE

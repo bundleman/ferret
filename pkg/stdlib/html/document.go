@@ -3,6 +3,7 @@ package html
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/MontFerret/ferret/pkg/drivers"
 	"github.com/MontFerret/ferret/pkg/drivers/cdp"
 	"github.com/MontFerret/ferret/pkg/runtime/core"
+	"github.com/MontFerret/ferret/pkg/runtime/logging"
 	"github.com/MontFerret/ferret/pkg/runtime/values"
 	"github.com/MontFerret/ferret/pkg/runtime/values/types"
 )
@@ -56,11 +58,20 @@ type PageLoadParams struct {
 // @param {Object} [params.evaluateArgs] - Set of parameters to add evaluate arguments.
 // @param {String} [params.evaluateArgs.expression] - JS script for execution.
 // @param {Boolean} [params.evaluateArgs.onEveryNewDocument=false] - (only CDPDriver) When true, the script is registered via Page.addScriptToEvaluateOnNewDocument and runs on every new document (initial load, back/forward, reload, client-side redirect) before any page scripts. When false, the script is executed once via Runtime.Evaluate after Navigate().
+// @param {Boolean} [params.disableRuntime=false] - (only CDPDriver) Skip Runtime.enable for the page, so V8 does not switch into debug mode.
+// @param {Boolean | Object} [params.directNavigation=false] - (only CDPDriver) Create the tab straight on the target URL instead of opening about:blank and navigating it. An object {lazyAttach: {...}} means the same with a lazy attach.
+// @param {Object} [params.directNavigation.lazyAttach] - (checked for any driver, used only by CDPDriver) Do not attach to the new tab until the page comes to a verdict, for pages behind an anti-bot check that scores a live DevTools session on the tab and whose outcome shows in the address or the title (see CHANGELOG 0.18.0-r.9): the tab is polled through the browser connection, and a DevTools session appears on it only after the verdict or after lazyAttach.timeout. Then the driver waits only for the end of HTML parsing (document.readyState is not "loading"), not for the load event: waiting for the page's own data is up to the query. Unlike directNavigation: true, any error of that wait fails DOCUMENT() and closes the tab. userAgent, headers, viewport, ignore and evaluateArgs apply from the attach on; with evaluateArgs.onEveryNewDocument the script runs only in documents committed after the attach, so usually not in the document DOCUMENT() returns. Cookies are set before the tab is created, as with directNavigation. The response of the main document is usually not seen, so use doc?.response. Polls with an empty address are skipped; url is checked before title, so a page matching both is a verdict by url. The document URL must not be empty or about:blank. A parse error of the object is also written to the log at warn level with the URL.
+// @param {Int} [params.directNavigation.lazyAttach.timeout=20000] - How long, in milliseconds, to wait for a verdict without attaching. Counted from the first poll; must be less than params.timeout. The end of it is not an error: the driver attaches as usual.
+// @param {Int} [params.directNavigation.lazyAttach.interval=300] - How often, in milliseconds, to poll the tab, counted from the end of the previous poll. Must be greater than zero and not greater than timeout.
+// @param {String[]} [params.directNavigation.lazyAttach.url] - Patterns of the tab address; a match is a verdict. The whole raw address is matched, case-sensitive and without decoding %XX: '*' is any run of characters, '?' is exactly one character, '\' makes the next character ordinary, every other character is ordinary, and a pattern ending with an unpaired '\' is an error. A pattern must not match the requested URL.
+// @param {String[]} [params.directNavigation.lazyAttach.title] - Patterns of the tab title, same syntax; a match is a verdict. Chrome's placeholder (the tab address shown while the document has no title of its own) does not match: a title equal to the requested URL or to an address a poll has seen, whole, without the scheme or host only, after decoding %XX, is taken for it (the placeholder of an address that lived shorter than interval may be missed), so ["*"] means "the page has a title of its own". url or title must be set, and none of them may be empty or hold an empty pattern.
+// @param {Boolean} [params.directNavigation.lazyAttach.waitReadyOnURL=true] - Wait for the end of HTML parsing after a verdict by url. false skips that wait, for url patterns that tell the outcome without the page content (e.g. a captcha address); a document not committed yet is still waited for until its first navigation event. Only allowed together with url.
 // @param {Boolean} [params.fetchMode=false] - (only CDPDriver) Keep the tab open after the query: it goes back to a pool, and the next DOCUMENT() with the same fetchPoolKey gets this tab as is, without navigation. For fetching data from inside an already warmed page. Assign the document to a variable (LET), otherwise the tab is not returned to the pool. Other params apply only when a new tab is opened. A query must be done with the tab within 10 minutes: after that the tab is taken back and closed even if the query still uses it.
 // @param {String} [params.fetchPoolKey="default"] - (only CDPDriver) Pool key for fetchMode tabs, e.g. a proxy or a region.
 // @param {Int} [params.fetchPoolSize=1] - (only CDPDriver) Maximum open tabs per fetchPoolKey. A query waits for a free tab up to params.timeout.
 // @param {Int} [params.fetchMaxUses=500] - (only CDPDriver) Queries served by a tab before it is closed and reopened.
 // @param {Int} [params.fetchMaxAge=1800] - (only CDPDriver) Tab lifetime in seconds before it is closed and reopened. Unlike params.timeout, which is in milliseconds.
+// @param {Boolean} [params.isolatedContext=false] - (only CDPDriver) Open the tab in a new browser context used by nothing else, so the cookies of the call do not mix with those of other tabs. The context is created before the tab, the cookies of the call go to it, and it is disposed when the page is closed, or at once if DOCUMENT() fails. Assign the document to a variable (LET), otherwise the page is not closed and its context stays until the driver disconnects. Each call starts with an empty cache and takes renderer processes of its own, so it costs more memory, CPU and traffic than a call in a shared context (see CHANGELOG 0.18.0-r.9). For calls that run at the same time with sessions of their own, or that read the cookies of their page back to save them. Not allowed together with keepCookies: true or fetchMode: true; such a conflict is checked for any driver and also written to the log at warn level with the URL.
 // @return {HTMLPage} - Loaded HTML page.
 func Open(ctx context.Context, args ...core.Value) (core.Value, error) {
 	err := core.ValidateArgs(args, 1, 2)
@@ -85,6 +96,24 @@ func Open(ctx context.Context, args ...core.Value) (core.Value, error) {
 		p, err := newPageLoadParams(url, args[1])
 
 		if err != nil {
+			// A query may swallow the error of DOCUMENT() with '?', so a broken lazyAttach or
+			// isolatedContext would otherwise go unnoticed.
+			if errors.Is(err, errDirectNavigation) {
+				logger := logging.FromContext(ctx)
+				logger.Warn().
+					Err(err).
+					Str("url", url.String()).
+					Msg("failed to parse directNavigation of DOCUMENT()")
+			}
+
+			if errors.Is(err, errIsolatedContext) {
+				logger := logging.FromContext(ctx)
+				logger.Warn().
+					Err(err).
+					Str("url", url.String()).
+					Msg("failed to parse isolatedContext of DOCUMENT()")
+			}
+
 			return values.None, err
 		}
 
@@ -180,11 +209,14 @@ func newPageLoadParams(url values.String, arg core.Value) (PageLoadParams, error
 		directNavigation, exists := obj.Get(values.NewString("directNavigation"))
 
 		if exists {
-			if err := core.ValidateType(directNavigation, types.Boolean); err != nil {
+			direct, lazy, err := parseDirectNavigation(directNavigation, res.URL, res.Timeout)
+
+			if err != nil {
 				return res, err
 			}
 
-			res.DirectNavigation = bool(directNavigation.(values.Boolean))
+			res.DirectNavigation = direct
+			res.LazyAttach = lazy
 		}
 
 		fetch, err := parseFetchParams(obj)
@@ -194,6 +226,14 @@ func newPageLoadParams(url values.String, arg core.Value) (PageLoadParams, error
 		}
 
 		res.Fetch = fetch
+
+		isolated, err := parseIsolatedContext(obj, res.KeepCookies, res.Fetch != nil)
+
+		if err != nil {
+			return res, err
+		}
+
+		res.IsolatedContext = isolated
 
 		cookies, exists := obj.Get(values.NewString("cookies"))
 
@@ -725,4 +765,238 @@ func parseFetchParams(obj *values.Object) (*drivers.FetchParams, error) {
 	}
 
 	return res, nil
+}
+
+// errIsolatedContext marks a conflict of isolatedContext with other params, so Open can log it.
+var errIsolatedContext = errors.New("isolatedContext")
+
+// parseIsolatedContext reads isolatedContext. An own context excludes the default one that
+// keepCookies: true works in, and a fetchMode tab outlives the query its context would go with.
+func parseIsolatedContext(obj *values.Object, keepCookies, fetchMode bool) (bool, error) {
+	value, exists := obj.Get(values.NewString("isolatedContext"))
+
+	if !exists {
+		return false, nil
+	}
+
+	if err := core.ValidateType(value, types.Boolean); err != nil {
+		return false, err
+	}
+
+	if !bool(value.(values.Boolean)) {
+		return false, nil
+	}
+
+	if keepCookies {
+		return false, fmt.Errorf("%w: cannot be used with keepCookies: true", errIsolatedContext)
+	}
+
+	if fetchMode {
+		return false, fmt.Errorf("%w: cannot be used with fetchMode: true", errIsolatedContext)
+	}
+
+	return true, nil
+}
+
+// errDirectNavigation marks an error of parsing the object form of directNavigation, so Open can
+// log it.
+var errDirectNavigation = errors.New("directNavigation")
+
+func directNavigationErrorf(format string, args ...interface{}) error {
+	return fmt.Errorf("%w: %s", errDirectNavigation, fmt.Sprintf(format, args...))
+}
+
+// parseDirectNavigation reads directNavigation: a boolean as before, or an object
+// {lazyAttach: {...}} meaning direct navigation with a lazy attach. Defaults are put in place
+// before the checks, and the checks do not depend on the driver that will run the call.
+func parseDirectNavigation(value core.Value, docURL string, callTimeout time.Duration) (bool, *drivers.LazyAttach, error) {
+	if b, ok := value.(values.Boolean); ok {
+		return bool(b), nil, nil
+	}
+
+	obj, ok := value.(*values.Object)
+
+	if !ok {
+		// Still an invalid type error, as before the object form existed. It is not a lazyAttach
+		// error, so it is not marked for the warn record.
+		return false, nil, core.TypeError(value.Type(), types.Boolean, types.Object)
+	}
+
+	raw, exists := obj.Get(values.NewString("lazyAttach"))
+
+	if !exists || obj.Length() != 1 {
+		return false, nil, directNavigationErrorf("an object must hold lazyAttach and nothing else")
+	}
+
+	lazyObj, ok := raw.(*values.Object)
+
+	if !ok {
+		return false, nil, directNavigationErrorf("lazyAttach must be an object, got %s", raw.Type())
+	}
+
+	lazy, err := parseLazyAttach(lazyObj)
+
+	if err != nil {
+		return false, nil, err
+	}
+
+	if lazy.Timeout >= callTimeout {
+		return false, nil, directNavigationErrorf(
+			"lazyAttach.timeout %d ms must be less than the DOCUMENT() timeout %d ms",
+			lazy.Timeout.Milliseconds(), callTimeout.Milliseconds(),
+		)
+	}
+
+	if docURL == "" || docURL == cdp.BlankPageURL {
+		return false, nil, directNavigationErrorf("lazyAttach needs a document URL, got %q", docURL)
+	}
+
+	// A pattern matching the requested address would give the verdict on the first poll.
+	for _, pattern := range lazy.URL {
+		re, _ := drivers.CompileLazyPattern(pattern)
+
+		if re.MatchString(docURL) {
+			return false, nil, directNavigationErrorf("lazyAttach.url pattern %q matches the requested URL %q", pattern, docURL)
+		}
+	}
+
+	return true, lazy, nil
+}
+
+func parseLazyAttach(obj *values.Object) (*drivers.LazyAttach, error) {
+	res := &drivers.LazyAttach{
+		Timeout:        drivers.DefaultLazyAttachTimeout * time.Millisecond,
+		Interval:       drivers.DefaultLazyAttachInterval * time.Millisecond,
+		WaitReadyOnURL: true,
+	}
+
+	var unknown string
+
+	obj.ForEach(func(_ core.Value, key string) bool {
+		switch key {
+		case "timeout", "interval", "url", "title", "waitReadyOnURL":
+			return true
+		default:
+			unknown = key
+
+			return false
+		}
+	})
+
+	if unknown != "" {
+		return nil, directNavigationErrorf("unknown lazyAttach key %q", unknown)
+	}
+
+	for _, field := range []struct {
+		name string
+		dst  *time.Duration
+	}{{"timeout", &res.Timeout}, {"interval", &res.Interval}} {
+		value, exists := obj.Get(values.NewString(field.name))
+
+		if !exists {
+			continue
+		}
+
+		if err := core.ValidateType(value, types.Int); err != nil {
+			return nil, directNavigationErrorf("lazyAttach.%s: %s", field.name, err)
+		}
+
+		*field.dst = time.Duration(value.(values.Int)) * time.Millisecond
+	}
+
+	var err error
+
+	if res.URL, err = parseLazyPatterns(obj, "url"); err != nil {
+		return nil, err
+	}
+
+	if res.Title, err = parseLazyPatterns(obj, "title"); err != nil {
+		return nil, err
+	}
+
+	if value, exists := obj.Get(values.NewString("waitReadyOnURL")); exists {
+		if err := core.ValidateType(value, types.Boolean); err != nil {
+			return nil, directNavigationErrorf("lazyAttach.waitReadyOnURL: %s", err)
+		}
+
+		// Without url patterns there is no verdict by URL for the flag to act on.
+		if res.URL == nil {
+			return nil, directNavigationErrorf("lazyAttach.waitReadyOnURL is set without lazyAttach.url")
+		}
+
+		res.WaitReadyOnURL = bool(value.(values.Boolean))
+	}
+
+	if res.URL == nil && res.Title == nil {
+		return nil, directNavigationErrorf("lazyAttach needs url or title patterns")
+	}
+
+	if res.Timeout <= 0 || res.Interval <= 0 {
+		return nil, directNavigationErrorf(
+			"lazyAttach.timeout %d ms and lazyAttach.interval %d ms must be greater than zero",
+			res.Timeout.Milliseconds(), res.Interval.Milliseconds(),
+		)
+	}
+
+	if res.Interval > res.Timeout {
+		return nil, directNavigationErrorf(
+			"lazyAttach.interval %d ms must not be greater than lazyAttach.timeout %d ms",
+			res.Interval.Milliseconds(), res.Timeout.Milliseconds(),
+		)
+	}
+
+	return res, nil
+}
+
+// parseLazyPatterns reads an array of patterns. An empty array or an empty pattern would never
+// give a verdict: polls with an empty address are skipped and an empty title is a placeholder.
+func parseLazyPatterns(obj *values.Object, key string) ([]string, error) {
+	value, exists := obj.Get(values.NewString(key))
+
+	if !exists {
+		return nil, nil
+	}
+
+	arr, ok := value.(*values.Array)
+
+	if !ok {
+		return nil, directNavigationErrorf("lazyAttach.%s must be an array of strings, got %s", key, value.Type())
+	}
+
+	if arr.Length() == 0 {
+		return nil, directNavigationErrorf("lazyAttach.%s must not be empty", key)
+	}
+
+	patterns := make([]string, 0, int(arr.Length()))
+
+	var err error
+
+	arr.ForEach(func(item core.Value, idx int) bool {
+		s, ok := item.(values.String)
+
+		switch {
+		case !ok:
+			err = directNavigationErrorf("lazyAttach.%s[%d] must be a string, got %s", key, idx, item.Type())
+		case s == "":
+			err = directNavigationErrorf("lazyAttach.%s[%d] must not be empty", key, idx)
+		default:
+			if _, compileErr := drivers.CompileLazyPattern(s.String()); compileErr != nil {
+				err = directNavigationErrorf("lazyAttach.%s[%d]: %s", key, idx, compileErr)
+			}
+		}
+
+		if err != nil {
+			return false
+		}
+
+		patterns = append(patterns, s.String())
+
+		return true
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return patterns, nil
 }

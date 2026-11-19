@@ -1,0 +1,15 @@
+LET url = @lab.cdn.static + '/overview.html'
+LET t0 = NOW()
+LET doc = DOCUMENT(url, {
+    driver: "cdp",
+    directNavigation: { lazyAttach: { title: ["Overview*"], timeout: 15000 } }
+})
+LET took = DATE_DIFF(t0, NOW(), "f")
+
+// The tab is attached on its title, well before lazyAttach.timeout ends, and the whole document
+// is returned (the success path).
+T::LT(took, 10000)
+T::TRUE(ELEMENT_EXISTS(doc, '#z-index'))
+T::TRUE(ELEMENT_EXISTS(doc, 'script[src="./assets/docs.min.js"]'))
+
+RETURN NONE

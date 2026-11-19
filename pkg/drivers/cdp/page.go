@@ -19,6 +19,8 @@ import (
 
 	"github.com/MontFerret/ferret/pkg/drivers"
 	"github.com/MontFerret/ferret/pkg/drivers/cdp/dom"
+	"github.com/MontFerret/ferret/pkg/drivers/cdp/eval"
+	cdpEvents "github.com/MontFerret/ferret/pkg/drivers/cdp/events"
 	"github.com/MontFerret/ferret/pkg/drivers/cdp/input"
 	net "github.com/MontFerret/ferret/pkg/drivers/cdp/network"
 	"github.com/MontFerret/ferret/pkg/drivers/cdp/templates"
@@ -44,6 +46,8 @@ type (
 		evaluateArgs *drivers.EvaluateArgs
 		// release returns a fetchMode tab to its pool instead of closing it
 		release func(page *HTMLPage) bool
+		// dispose disposes the browser context of an isolatedContext page
+		dispose func()
 	}
 )
 
@@ -51,6 +55,18 @@ func LoadHTMLPage(
 	ctx context.Context,
 	conn *rpcc.Conn,
 	params drivers.Params,
+) (*HTMLPage, error) {
+	return loadHTMLPage(ctx, conn, params, nil)
+}
+
+// loadHTMLPage is LoadHTMLPage that fills the report of a lazyAttach call. With params.LazyAttach
+// the tab has already come to a verdict or to the end of lazyAttach.timeout, and the report tells
+// which.
+func loadHTMLPage(
+	ctx context.Context,
+	conn *rpcc.Conn,
+	params drivers.Params,
+	report *lazyAttachReport,
 ) (p *HTMLPage, err error) {
 	logger := logging.FromContext(ctx)
 
@@ -64,18 +80,12 @@ func LoadHTMLPage(
 	// Registered before the first call that can fail, so a failed load never leaves the tab open.
 	defer func() {
 		if err != nil {
-			if closeErr := closePage(client); closeErr != nil {
-				// A failed navigation may leave the tab on Chrome's error page with the session
-				// no longer attached to a page: Page.close fails and the tab stays open for good.
-				// Closing the target itself works in any state.
-				if targetErr := closeOwnTarget(client); targetErr != nil {
-					logger.Warn().
-						Err(err).
-						AnErr("page_close", closeErr).
-						AnErr("close_target", targetErr).
-						Msg("failed to close browser page after a failed load")
-				}
-			}
+			closeFailedPage(
+				logger,
+				err,
+				func() error { return closePage(client) },
+				func() error { return closeOwnTarget(client) },
+			)
 
 			// Ignore errors from the connection object, as Close does
 			conn.Close()
@@ -85,6 +95,8 @@ func LoadHTMLPage(
 	}()
 
 	if err = enableFeatures(ctx, client, params); err != nil {
+		report.fail(stageSessionSetup, err)
+
 		return nil, err
 	}
 
@@ -112,6 +124,8 @@ func LoadHTMLPage(
 	)
 
 	if err != nil {
+		report.fail(stageSessionSetup, err)
+
 		return nil, err
 	}
 
@@ -130,6 +144,8 @@ func LoadHTMLPage(
 	)
 
 	if err != nil {
+		report.fail(stageSessionSetup, err)
+
 		return nil, err
 	}
 
@@ -146,16 +162,19 @@ func LoadHTMLPage(
 	p.SetEvaluateArgs(params.EvaluateArgs)
 
 	if err := p.installEvaluateScript(ctx); err != nil {
+		report.fail(stageEvaluate, err)
+
 		return p, errors.Wrap(err, "install evaluate script")
 	}
 
-	if params.URL != BlankPageURL && params.URL != "" {
-		if params.DirectNavigation {
-			err = p.awaitDirectNavigation(ctx)
-		} else {
-			err = p.Navigate(ctx, values.NewString(params.URL))
-		}
-	} else {
+	switch step, skipParsed := pageLoadStepFor(params, report); step {
+	case stepLazy:
+		err = p.awaitLazyDocument(ctx, skipParsed, report)
+	case stepDirect:
+		err = p.awaitDirectNavigation(ctx)
+	case stepNavigate:
+		err = p.Navigate(ctx, values.NewString(params.URL))
+	default:
 		err = p.loadMainFrame(ctx)
 	}
 
@@ -164,6 +183,27 @@ func LoadHTMLPage(
 	}
 
 	return p, nil
+}
+
+// closeFailedPage closes the tab of a failed load. A failed navigation may leave the tab on
+// Chrome's error page with the session no longer attached to a page: Page.close fails and the tab
+// stays open for good, while closing the target itself works in any state.
+func closeFailedPage(logger zerolog.Logger, loadErr error, closePage, closeTarget func() error) {
+	closeErr := closePage()
+
+	if closeErr == nil {
+		return
+	}
+
+	// Trace, not Warn: the message is frequent in production logs, and ferret prints nothing
+	// below debug at log level 0.
+	if targetErr := closeTarget(); targetErr != nil {
+		logger.Trace().
+			Err(loadErr).
+			AnErr("page_close", closeErr).
+			AnErr("close_target", targetErr).
+			Msg("failed to close browser page after a failed load")
+	}
 }
 
 // pageCloseTimeout bounds closing a tab: a tab that does not answer must not hold up the
@@ -369,6 +409,13 @@ func (p *HTMLPage) setRelease(release func(page *HTMLPage) bool) {
 	p.release = release
 }
 
+func (p *HTMLPage) setDispose(dispose func()) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.dispose = dispose
+}
+
 func (p *HTMLPage) destroy() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -421,6 +468,11 @@ func (p *HTMLPage) destroy() error {
 
 	// Ignore errors from the connection object
 	p.conn.Close()
+
+	// The context of an isolatedContext page goes after its tab, also when closing the tab failed.
+	if p.dispose != nil {
+		p.dispose()
+	}
 
 	return nil
 }
@@ -817,6 +869,41 @@ func (p *HTMLPage) awaitDirectNavigation(ctx context.Context) error {
 	}
 
 	return p.loadMainFrame(ctx)
+}
+
+// awaitLazyDocument finishes the navigation of a tab attached after its lazyAttach verdict. Unlike
+// awaitDirectNavigation it waits for the end of HTML parsing instead of complete, and any error
+// of that wait fails the call.
+func (p *HTMLPage) awaitLazyDocument(ctx context.Context, skipParsed bool, report *lazyAttachReport) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return lazyDocumentSteps{
+		navigation: func(ctx context.Context) (navigationEvents, error) {
+			return p.network.OnNavigationEvents(ctx)
+		},
+		committed:  p.isDocumentCommitted,
+		evaluate:   p.evaluateOnce,
+		waitParsed: p.waitMainFrameParsed,
+		loadRoot:   p.loadMainFrame,
+	}.run(ctx, skipParsed, report)
+}
+
+// waitMainFrameParsed waits for the end of HTML parsing of the current main frame document.
+func (p *HTMLPage) waitMainFrameParsed(ctx context.Context) error {
+	tree, err := p.client.Page.GetFrameTree(ctx)
+
+	if err != nil {
+		return err
+	}
+
+	ec, err := eval.Create(ctx, p.logger, p.client, tree.FrameTree.Frame.ID)
+
+	if err != nil {
+		return err
+	}
+
+	return waitParsed(ctx, ec, cdpEvents.DefaultPolling)
 }
 
 // evaluateOnce runs the user script a single time. OnEveryNewDocument is installed in

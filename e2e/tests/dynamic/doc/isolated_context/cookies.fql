@@ -1,0 +1,32 @@
+LET url = @lab.cdn.dynamic
+LET docA = DOCUMENT(url, {
+    driver: "cdp",
+    isolatedContext: true,
+    cookies: [{ name: "x-e2e-isolated-a", value: "a" }]
+})
+LET docB = DOCUMENT(url, {
+    driver: "cdp",
+    isolatedContext: true,
+    cookies: [{ name: "x-e2e-isolated-b", value: "b" }]
+})
+
+LET docShared = DOCUMENT(url, {
+    driver: "cdp",
+    cookies: [{ name: "x-e2e-isolated-shared", value: "s" }]
+})
+
+// The two isolated tabs are open at once, each in a browser context of its own: each page sees its own
+// cookie and not the other's. In a shared context each would see both (shared.fql).
+T::EQ(COOKIE_GET(docA, "x-e2e-isolated-a").value, "a")
+T::EQ(COOKIE_GET(docB, "x-e2e-isolated-b").value, "b")
+T::NONE(COOKIE_GET(docA, "x-e2e-isolated-b"))
+T::NONE(COOKIE_GET(docB, "x-e2e-isolated-a"))
+
+// A third tab without the param lives in the shared incognito context of the driver: it sees
+// neither cookie, so neither call above went to that context, and they do not see its cookie.
+T::NONE(COOKIE_GET(docShared, "x-e2e-isolated-a"))
+T::NONE(COOKIE_GET(docShared, "x-e2e-isolated-b"))
+T::NONE(COOKIE_GET(docA, "x-e2e-isolated-shared"))
+T::NONE(COOKIE_GET(docB, "x-e2e-isolated-shared"))
+
+RETURN NONE
