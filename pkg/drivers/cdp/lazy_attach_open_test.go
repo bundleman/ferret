@@ -2,8 +2,6 @@ package cdp
 
 import (
 	"context"
-	"errors"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -11,6 +9,8 @@ import (
 	"github.com/mafredri/cdp/protocol/storage"
 	"github.com/mafredri/cdp/protocol/target"
 	"github.com/mafredri/cdp/rpcc"
+	"github.com/pkg/errors"
+	. "github.com/smartystreets/goconvey/convey"
 
 	"github.com/MontFerret/ferret/pkg/drivers"
 )
@@ -120,157 +120,207 @@ func lazyParams(opts *drivers.LazyAttach) drivers.Params {
 	return drivers.Params{URL: waitTestURL, DirectNavigation: true, LazyAttach: opts}
 }
 
-func TestOpenTargetDialsOnlyAfterVerdict(t *testing.T) {
+func Test_TargetOpener_Open(t *testing.T) {
+	type fields struct {
+		tab *scriptedTab
+		// setup breaks a part of the browser side before the call
+		setup func(opener *targetOpener, targets *fakeTargets, dial *fakeDial)
+	}
+	type args struct {
+		params   drivers.Params
+		report   *lazyAttachReport
+		deadline time.Duration
+	}
 	placeholder := tabState{waitTestURL, "shop.example/product/1/", false}
-	opener, targets, dial := newTestOpener(&scriptedTab{states: []tabState{placeholder, placeholder, {waitTestURL, "Товар 1", false}}})
-	report := newLazyAttachReport(lazyParams(nil))
-
-	conn, err := opener.open(context.Background(), lazyParams(lazyOpts(time.Second, 10*time.Millisecond, nil, []string{"*"})), report)
-
-	if err != nil || conn == nil {
-		t.Fatalf("got %v, %v", conn, err)
+	verdictTab := func() *scriptedTab { return &scriptedTab{states: []tabState{{waitTestURL, "Товар 1", false}}} }
+	blankTab := func() *scriptedTab { return &scriptedTab{states: []tabState{{waitTestURL, "", false}}} }
+	byTitle := func() drivers.Params {
+		return lazyParams(lazyOpts(time.Second, 10*time.Millisecond, nil, []string{"*"}))
 	}
-
-	if dial.calls != 1 || dial.pollsAtCall != 3 {
-		t.Errorf("dial called %d times after %d polls, want once after the verdict poll 3", dial.calls, dial.pollsAtCall)
-	}
-
-	if report.verdict.Reason != verdictTitle || report.targetID != "T1" || !report.incognito {
-		t.Errorf("got report %+v", report)
-	}
-
-	if len(targets.created) != 1 || targets.created[0].URL != waitTestURL {
-		t.Errorf("the tab must be created on the target URL, got %+v", targets.created)
-	}
-}
-
-func TestOpenTargetPollErrorClosesTab(t *testing.T) {
-	opener, targets, dial := newTestOpener(&scriptedTab{err: rpcc.ErrConnClosing})
-	report := newLazyAttachReport(lazyParams(nil))
-
-	_, err := opener.open(context.Background(), lazyParams(lazyOpts(time.Second, 10*time.Millisecond, nil, []string{"*"})), report)
-
-	// the downloader closes the driver by this text
-	if err == nil || !strings.Contains(err.Error(), "the connection is closing") || !errors.Is(err, rpcc.ErrConnClosing) {
-		t.Errorf("got %v, want the poll error with its text kept", err)
-	}
-
-	if dial.calls != 0 || len(targets.closed) != 1 || targets.closed[0] != "T1" {
-		t.Errorf("dial calls %d, closed %v: want the tab closed and never attached", dial.calls, targets.closed)
-	}
-
-	if report.verdict.Reason != verdictPollError || report.stage != stagePoll {
-		t.Errorf("got report %+v", report)
-	}
-}
-
-func TestOpenTargetContextEndClosesTab(t *testing.T) {
-	opener, targets, dial := newTestOpener(&scriptedTab{states: []tabState{{waitTestURL, "", false}}})
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-	report := newLazyAttachReport(lazyParams(nil))
-
-	_, err := opener.open(ctx, lazyParams(lazyOpts(time.Second, 10*time.Millisecond, nil, []string{"*"})), report)
-
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Errorf("got %v, want the context error", err)
-	}
-
-	if dial.calls != 0 || len(targets.closed) != 1 || !targets.closedOnAlive[0] {
-		t.Errorf("dial calls %d, closed %v on a live context %v: want the tab closed on a context of its own",
-			dial.calls, targets.closed, targets.closedOnAlive)
-	}
-}
-
-func TestOpenTargetDialErrorClosesTab(t *testing.T) {
-	opener, targets, dial := newTestOpener(&scriptedTab{states: []tabState{{waitTestURL, "Товар 1", false}}})
-	dial.err = rpcc.ErrConnClosing
-	report := newLazyAttachReport(lazyParams(nil))
-
-	_, err := opener.open(context.Background(), lazyParams(lazyOpts(time.Second, 10*time.Millisecond, nil, []string{"*"})), report)
-
-	if !errors.Is(err, rpcc.ErrConnClosing) || len(targets.closed) != 1 {
-		t.Errorf("got %v, closed %v: want the error and the tab closed", err, targets.closed)
-	}
-
-	if report.stage != stageAttach {
-		t.Errorf("got stage %q, want %q", report.stage, stageAttach)
-	}
-}
-
-func TestOpenTargetTimeoutStillAttaches(t *testing.T) {
-	opener, _, dial := newTestOpener(&scriptedTab{states: []tabState{{waitTestURL, "", false}}})
-	report := newLazyAttachReport(lazyParams(nil))
-
-	_, err := opener.open(context.Background(), lazyParams(lazyOpts(60*time.Millisecond, 10*time.Millisecond, nil, []string{"*"})), report)
-
-	if err != nil || dial.calls != 1 || report.verdict.Reason != verdictTimeout {
-		t.Errorf("got %v, dial calls %d, report %+v: the end of timeout attaches as usual", err, dial.calls, report)
-	}
-}
-
-func TestOpenTargetWithoutLazyAttachUnchanged(t *testing.T) {
-	opener, targets, dial := newTestOpener(&scriptedTab{states: []tabState{{waitTestURL, "", false}}})
-
-	conn, err := opener.open(context.Background(), drivers.Params{URL: waitTestURL, DirectNavigation: true}, nil)
-
-	if err != nil || conn == nil || dial.calls != 1 || targets.infoCount() != 0 {
-		t.Errorf("got %v, dial calls %d, polls %d: want an attach right away and no polls", err, dial.calls, targets.infoCount())
-	}
-
-	if len(targets.created) != 1 || targets.created[0].URL != waitTestURL {
-		t.Errorf("got %+v, want the tab created on the target URL", targets.created)
-	}
-}
-
-func TestOpenTargetWithoutDirectNavigationOpensBlank(t *testing.T) {
-	opener, targets, dial := newTestOpener(&scriptedTab{states: []tabState{{waitTestURL, "", false}}})
-
-	_, err := opener.open(context.Background(), drivers.Params{URL: waitTestURL}, nil)
-
-	if err != nil || dial.calls != 1 || len(targets.created) != 1 || targets.created[0].URL != BlankPageURL {
-		t.Errorf("got %v, dial calls %d, created %+v: want a blank tab as before", err, dial.calls, targets.created)
-	}
-}
-
-func TestOpenTargetKeepCookiesIsNotIncognito(t *testing.T) {
-	opener, targets, _ := newTestOpener(&scriptedTab{states: []tabState{{waitTestURL, "Товар 1", false}}})
-	params := lazyParams(lazyOpts(time.Second, 10*time.Millisecond, nil, []string{"*"}))
-	params.KeepCookies = true
-	report := newLazyAttachReport(params)
-
-	if _, err := opener.open(context.Background(), params, report); err != nil {
-		t.Fatal(err)
-	}
-
-	if report.incognito || targets.created[0].BrowserContextID != nil {
-		t.Errorf("a keepCookies tab lives in the default context, got report %+v, args %+v", report, targets.created[0])
-	}
-}
-
-// TestOpenTargetPrepareErrors: a failure while setting cookies or creating the tab is written as
-// a call that failed before the first poll, with the stage prepare.
-func TestOpenTargetPrepareErrors(t *testing.T) {
-	for _, name := range []string{"cookies", "create target"} {
-		opener, targets, dial := newTestOpener(&scriptedTab{states: []tabState{{waitTestURL, "Товар 1", false}}})
-		params := lazyParams(lazyOpts(time.Second, 10*time.Millisecond, nil, []string{"*"}))
+	keepCookies := byTitle()
+	keepCookies.KeepCookies = true
+	withCookies := func() drivers.Params {
+		params := byTitle()
 		params.Cookies = drivers.NewHTTPCookiesWith(map[string]drivers.HTTPCookie{"a": {Name: "a", Value: "1"}})
 
-		if name == "cookies" {
-			opener.cookies = &fakeCookies{err: errors.New("cookies failed")}
-		} else {
-			targets.createErr = errors.New("create failed")
-		}
-
-		report := newLazyAttachReport(params)
-		_, err := opener.open(context.Background(), params, report)
-
-		if err == nil || report.stage != stagePrepare || report.verdict.Reason != verdictBeforePoll {
-			t.Errorf("%s: got %v, report %+v", name, err, report)
-		}
-
-		if dial.calls != 0 || targets.infoCount() != 0 || len(targets.closed) != 0 {
-			t.Errorf("%s: dial %d, polls %d, closed %v: nothing to attach to or close", name, dial.calls, targets.infoCount(), targets.closed)
-		}
+		return params
 	}
+	errCookies := errors.New("cookies failed")
+	errCreate := errors.New("create failed")
+	cookiesParams, createParams := withCookies(), withCookies()
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		wantErr error
+		// errText is the text the downloader closes the driver by
+		errText string
+		assert  func(conn *rpcc.Conn, report *lazyAttachReport, targets *fakeTargets, dial *fakeDial)
+	}{
+		{
+			name:   "Should attach only after the verdict",
+			fields: fields{tab: &scriptedTab{states: []tabState{placeholder, placeholder, {waitTestURL, "Товар 1", false}}}},
+			args:   args{params: byTitle(), report: newLazyAttachReport(lazyParams(nil))},
+			assert: func(conn *rpcc.Conn, report *lazyAttachReport, targets *fakeTargets, dial *fakeDial) {
+				So(conn, ShouldNotBeNil)
+				So(dial.calls, ShouldEqual, 1)
+				So(dial.pollsAtCall, ShouldEqual, 3)
+				So(report.verdict.Reason, ShouldEqual, verdictTitle)
+				So(report.targetID, ShouldEqual, "T1")
+				So(report.incognito, ShouldBeTrue)
+				So(len(targets.created), ShouldEqual, 1)
+				So(targets.created[0].URL, ShouldEqual, waitTestURL)
+			},
+		},
+		{
+			name:   "Should attach as usual at the end of timeout",
+			fields: fields{tab: blankTab()},
+			args: args{
+				params: lazyParams(lazyOpts(60*time.Millisecond, 10*time.Millisecond, nil, []string{"*"})),
+				report: newLazyAttachReport(lazyParams(nil)),
+			},
+			assert: func(_ *rpcc.Conn, report *lazyAttachReport, _ *fakeTargets, dial *fakeDial) {
+				So(dial.calls, ShouldEqual, 1)
+				So(report.verdict.Reason, ShouldEqual, verdictTimeout)
+			},
+		},
+		{
+			name:   "Should attach right away without lazyAttach",
+			fields: fields{tab: blankTab()},
+			args:   args{params: drivers.Params{URL: waitTestURL, DirectNavigation: true}},
+			assert: func(conn *rpcc.Conn, _ *lazyAttachReport, targets *fakeTargets, dial *fakeDial) {
+				So(conn, ShouldNotBeNil)
+				So(dial.calls, ShouldEqual, 1)
+				So(targets.infoCount(), ShouldEqual, 0)
+				So(len(targets.created), ShouldEqual, 1)
+				So(targets.created[0].URL, ShouldEqual, waitTestURL)
+			},
+		},
+		{
+			name:   "Should open a blank tab without directNavigation",
+			fields: fields{tab: blankTab()},
+			args:   args{params: drivers.Params{URL: waitTestURL}},
+			assert: func(_ *rpcc.Conn, _ *lazyAttachReport, targets *fakeTargets, dial *fakeDial) {
+				So(dial.calls, ShouldEqual, 1)
+				So(len(targets.created), ShouldEqual, 1)
+				So(targets.created[0].URL, ShouldEqual, BlankPageURL)
+			},
+		},
+		{
+			name:   "Should open a keepCookies tab in the default context",
+			fields: fields{tab: verdictTab()},
+			args:   args{params: keepCookies, report: newLazyAttachReport(keepCookies)},
+			assert: func(_ *rpcc.Conn, report *lazyAttachReport, targets *fakeTargets, _ *fakeDial) {
+				So(report.incognito, ShouldBeFalse)
+				So(targets.created[0].BrowserContextID, ShouldBeNil)
+			},
+		},
+		{
+			name:    "Should close the tab on a poll error and keep the error text",
+			fields:  fields{tab: &scriptedTab{err: rpcc.ErrConnClosing}},
+			args:    args{params: byTitle(), report: newLazyAttachReport(lazyParams(nil))},
+			wantErr: rpcc.ErrConnClosing,
+			errText: "the connection is closing",
+			assert: func(_ *rpcc.Conn, report *lazyAttachReport, targets *fakeTargets, dial *fakeDial) {
+				So(dial.calls, ShouldEqual, 0)
+				So(len(targets.closed), ShouldEqual, 1)
+				So(targets.closed[0], ShouldEqual, "T1")
+				So(report.verdict.Reason, ShouldEqual, verdictPollError)
+				So(report.stage, ShouldEqual, stagePoll)
+			},
+		},
+		{
+			name:    "Should close the tab on a context of its own when the call ends",
+			fields:  fields{tab: blankTab()},
+			args:    args{params: byTitle(), report: newLazyAttachReport(lazyParams(nil)), deadline: 50 * time.Millisecond},
+			wantErr: context.DeadlineExceeded,
+			assert: func(_ *rpcc.Conn, _ *lazyAttachReport, targets *fakeTargets, dial *fakeDial) {
+				So(dial.calls, ShouldEqual, 0)
+				So(len(targets.closed), ShouldEqual, 1)
+				So(targets.closedOnAlive[0], ShouldBeTrue)
+			},
+		},
+		{
+			name: "Should close the tab when the attach fails",
+			fields: fields{
+				tab: verdictTab(),
+				setup: func(_ *targetOpener, _ *fakeTargets, dial *fakeDial) {
+					dial.err = rpcc.ErrConnClosing
+				},
+			},
+			args:    args{params: byTitle(), report: newLazyAttachReport(lazyParams(nil))},
+			wantErr: rpcc.ErrConnClosing,
+			assert: func(_ *rpcc.Conn, report *lazyAttachReport, targets *fakeTargets, _ *fakeDial) {
+				So(len(targets.closed), ShouldEqual, 1)
+				So(report.stage, ShouldEqual, stageAttach)
+			},
+		},
+		{
+			name: "Should write a failure to set cookies as a failure before the first poll",
+			fields: fields{
+				tab: verdictTab(),
+				setup: func(opener *targetOpener, _ *fakeTargets, _ *fakeDial) {
+					opener.cookies = &fakeCookies{err: errCookies}
+				},
+			},
+			args:    args{params: cookiesParams, report: newLazyAttachReport(cookiesParams)},
+			wantErr: errCookies,
+			assert:  assertPrepareFailure,
+		},
+		{
+			name: "Should write a failure to create the tab as a failure before the first poll",
+			fields: fields{
+				tab: verdictTab(),
+				setup: func(_ *targetOpener, targets *fakeTargets, _ *fakeDial) {
+					targets.createErr = errCreate
+				},
+			},
+			args:    args{params: createParams, report: newLazyAttachReport(createParams)},
+			wantErr: errCreate,
+			assert:  assertPrepareFailure,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			Convey(tt.name, t, func() {
+				opener, targets, dial := newTestOpener(tt.fields.tab)
+
+				if tt.fields.setup != nil {
+					tt.fields.setup(&opener, targets, dial)
+				}
+
+				ctx := context.Background()
+
+				if tt.args.deadline > 0 {
+					var cancel context.CancelFunc
+
+					ctx, cancel = context.WithTimeout(ctx, tt.args.deadline)
+					t.Cleanup(cancel)
+				}
+
+				conn, err := opener.open(ctx, tt.args.params, tt.args.report)
+
+				if tt.wantErr != nil {
+					So(errors.Is(err, tt.wantErr), ShouldBeTrue)
+
+					if tt.errText != "" {
+						So(err.Error(), ShouldContainSubstring, tt.errText)
+					}
+				} else {
+					So(err, ShouldBeNil)
+				}
+
+				tt.assert(conn, tt.args.report, targets, dial)
+			})
+		})
+	}
+}
+
+// assertPrepareFailure checks a call that failed before the first poll: nothing to attach to or close.
+func assertPrepareFailure(_ *rpcc.Conn, report *lazyAttachReport, targets *fakeTargets, dial *fakeDial) {
+	So(report.stage, ShouldEqual, stagePrepare)
+	So(report.verdict.Reason, ShouldEqual, verdictBeforePoll)
+	So(dial.calls, ShouldEqual, 0)
+	So(targets.infoCount(), ShouldEqual, 0)
+	So(len(targets.closed), ShouldEqual, 0)
 }

@@ -2,12 +2,13 @@ package cdp
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/mafredri/cdp/rpcc"
+	"github.com/pkg/errors"
+	. "github.com/smartystreets/goconvey/convey"
 
 	"github.com/MontFerret/ferret/pkg/drivers"
 )
@@ -67,205 +68,211 @@ func lazyOpts(timeout, interval time.Duration, url, title []string) *drivers.Laz
 	return &drivers.LazyAttach{Timeout: timeout, Interval: interval, URL: url, Title: title, WaitReadyOnURL: true}
 }
 
-func TestLazyVerdictFirstPollImmediately(t *testing.T) {
-	tab := &scriptedTab{states: []tabState{{waitTestURL, "Товар 1", false}}}
-	start := time.Now()
-
-	v, err := awaitLazyVerdict(context.Background(), lazyOpts(time.Second, 500*time.Millisecond, nil, []string{"*"}), waitTestURL, tab.poll)
-
-	if err != nil {
-		t.Fatal(err)
+func Test_AwaitLazyVerdict(t *testing.T) {
+	type args struct {
+		tab      *scriptedTab
+		opts     *drivers.LazyAttach
+		deadline time.Duration
 	}
-
-	if d := tab.polls()[0].Sub(start); d > 50*time.Millisecond {
-		t.Errorf("the first poll started after %v, want right away", d)
-	}
-
-	if v.Reason != verdictTitle || v.Pattern != "*" || v.Title != "Товар 1" {
-		t.Errorf("got %+v, want a verdict by title", v)
-	}
-}
-
-func TestLazyVerdictIntervalFromEndOfPoll(t *testing.T) {
 	placeholder := tabState{waitTestURL, "shop.example/product/1/", false}
-	tab := &scriptedTab{states: []tabState{placeholder, placeholder, {waitTestURL, "Товар 1", false}}, delay: 50 * time.Millisecond}
+	tests := []struct {
+		name    string
+		args    args
+		wantErr error
+		assert  func(v lazyVerdict, tab *scriptedTab, start time.Time)
+	}{
+		{
+			name: "Should poll right away and give a verdict by title",
+			args: args{
+				tab:  &scriptedTab{states: []tabState{{waitTestURL, "Товар 1", false}}},
+				opts: lazyOpts(time.Second, 500*time.Millisecond, nil, []string{"*"}),
+			},
+			assert: func(v lazyVerdict, tab *scriptedTab, start time.Time) {
+				So(tab.polls()[0].Sub(start), ShouldBeLessThanOrEqualTo, 50*time.Millisecond)
+				So(v.Reason, ShouldEqual, verdictTitle)
+				So(v.Pattern, ShouldEqual, "*")
+				So(v.Title, ShouldEqual, "Товар 1")
+			},
+		},
+		{
+			name: "Should count the interval from the end of the previous poll",
+			args: args{
+				tab:  &scriptedTab{states: []tabState{placeholder, placeholder, {waitTestURL, "Товар 1", false}}, delay: 50 * time.Millisecond},
+				opts: lazyOpts(2*time.Second, 30*time.Millisecond, nil, []string{"*"}),
+			},
+			assert: func(_ lazyVerdict, tab *scriptedTab, _ time.Time) {
+				starts := tab.polls()
+				So(len(starts), ShouldEqual, 3)
 
-	if _, err := awaitLazyVerdict(context.Background(), lazyOpts(2*time.Second, 30*time.Millisecond, nil, []string{"*"}), waitTestURL, tab.poll); err != nil {
-		t.Fatal(err)
+				for i := 1; i < len(starts); i++ {
+					// 50 ms of the previous request plus 30 ms of interval
+					So(starts[i].Sub(starts[i-1]), ShouldBeGreaterThanOrEqualTo, 80*time.Millisecond)
+				}
+			},
+		},
+		{
+			name: "Should give a verdict by url",
+			args: args{
+				tab: &scriptedTab{states: []tabState{
+					{waitTestURL, "", false},
+					{"https://shop.example/captcha/?back=1", "shop.example/product/1/", false},
+				}},
+				opts: lazyOpts(time.Second, 10*time.Millisecond, []string{"*/captcha/*"}, []string{"*"}),
+			},
+			assert: func(v lazyVerdict, _ *scriptedTab, _ time.Time) {
+				So(v.Reason, ShouldEqual, verdictURL)
+				So(v.Pattern, ShouldEqual, "*/captcha/*")
+				So(v.URL, ShouldEqual, "https://shop.example/captcha/?back=1")
+			},
+		},
+		{
+			// waitReadyOnURL acts only on a verdict by url, and a captcha page may have a title of its own.
+			name: "Should check the url before the title in one poll",
+			args: args{
+				tab:  &scriptedTab{states: []tabState{{"https://shop.example/captcha/?back=1", "Access Denied", false}}},
+				opts: lazyOpts(time.Second, 10*time.Millisecond, []string{"*/captcha/*"}, []string{"*"}),
+			},
+			assert: func(v lazyVerdict, _ *scriptedTab, _ time.Time) {
+				So(v.Reason, ShouldEqual, verdictURL)
+				So(v.Pattern, ShouldEqual, "*/captcha/*")
+			},
+		},
+		{
+			name: "Should not take a redirect for a verdict",
+			args: args{
+				tab: &scriptedTab{states: []tabState{
+					{waitTestURL, "shop.example/product/1/", false},
+					{"https://shop.example/product/1/?step=1", "shop.example/product/1/", false},
+					{"https://shop.example/product/1-canonical/?step=1", "shop.example/product/1/", false},
+					{"https://shop.example/product/1-canonical/?step=1", "Товар 1", false},
+				}},
+				opts: lazyOpts(time.Second, 10*time.Millisecond, []string{"*/captcha/*"}, []string{"*"}),
+			},
+			assert: func(v lazyVerdict, tab *scriptedTab, _ time.Time) {
+				So(v.Reason, ShouldEqual, verdictTitle)
+				So(len(tab.polls()), ShouldEqual, 4)
+			},
+		},
+		{
+			name: "Should skip a poll with an empty address",
+			args: args{
+				tab: &scriptedTab{states: []tabState{
+					{"", "Товар 1", false},
+					{waitTestURL, "Товар 1", false},
+				}},
+				opts: lazyOpts(time.Second, 10*time.Millisecond, nil, []string{"*"}),
+			},
+			assert: func(_ lazyVerdict, tab *scriptedTab, _ time.Time) {
+				So(len(tab.polls()), ShouldEqual, 2)
+			},
+		},
+		{
+			name: "Should end with a timeout that is not an error and keep the last address and title",
+			args: args{
+				tab:  &scriptedTab{states: []tabState{placeholder}},
+				opts: lazyOpts(100*time.Millisecond, 10*time.Millisecond, nil, []string{"*"}),
+			},
+			assert: func(v lazyVerdict, _ *scriptedTab, start time.Time) {
+				So(v.Reason, ShouldEqual, verdictTimeout)
+				So(time.Since(start), ShouldBeGreaterThanOrEqualTo, 100*time.Millisecond)
+				So(v.URL, ShouldEqual, waitTestURL)
+				So(v.Title, ShouldEqual, "shop.example/product/1/")
+			},
+		},
+		{
+			name: "Should end on time with a timeout while a poll waits for the browser",
+			args: args{
+				tab:  &scriptedTab{states: []tabState{{waitTestURL, "", false}}, delay: time.Hour},
+				opts: lazyOpts(100*time.Millisecond, 10*time.Millisecond, nil, []string{"*"}),
+			},
+			assert: func(v lazyVerdict, _ *scriptedTab, start time.Time) {
+				So(v.Reason, ShouldEqual, verdictTimeout)
+				So(time.Since(start), ShouldBeLessThanOrEqualTo, time.Second)
+			},
+		},
+		{
+			name: "Should report a tab seen attached",
+			args: args{
+				tab: &scriptedTab{states: []tabState{
+					{waitTestURL, "", true},
+					{waitTestURL, "Товар 1", false},
+				}},
+				opts: lazyOpts(time.Second, 10*time.Millisecond, nil, []string{"*"}),
+			},
+			assert: func(v lazyVerdict, _ *scriptedTab, _ time.Time) {
+				So(v.AttachedSeen, ShouldBeTrue)
+			},
+		},
+		{
+			name: "Should wait for a title that matches the pattern",
+			args: args{
+				tab:  &scriptedTab{states: []tabState{{waitTestURL, "Товар 1", false}}},
+				opts: lazyOpts(60*time.Millisecond, 10*time.Millisecond, nil, []string{"404*"}),
+			},
+			assert: func(v lazyVerdict, _ *scriptedTab, _ time.Time) {
+				So(v.Reason, ShouldEqual, verdictTimeout)
+			},
+		},
+		{
+			name: "Should return a poll error as is",
+			args: args{
+				tab:  &scriptedTab{err: rpcc.ErrConnClosing},
+				opts: lazyOpts(time.Second, 10*time.Millisecond, nil, []string{"*"}),
+			},
+			wantErr: rpcc.ErrConnClosing,
+			assert: func(v lazyVerdict, _ *scriptedTab, _ time.Time) {
+				So(v.Reason, ShouldEqual, verdictPollError)
+			},
+		},
+		{
+			name: "Should return the context error when the call ends",
+			args: args{
+				tab:      &scriptedTab{states: []tabState{{waitTestURL, "", false}}},
+				opts:     lazyOpts(time.Second, 10*time.Millisecond, nil, []string{"*"}),
+				deadline: 50 * time.Millisecond,
+			},
+			wantErr: context.DeadlineExceeded,
+			assert: func(v lazyVerdict, _ *scriptedTab, _ time.Time) {
+				So(v.Reason, ShouldEqual, verdictCanceled)
+			},
+		},
+		{
+			// The end of the DOCUMENT() deadline is not a timeout of lazyAttach, also during a poll request.
+			name: "Should return the context error when the call ends during a poll request",
+			args: args{
+				tab:      &scriptedTab{states: []tabState{{waitTestURL, "", false}}, delay: time.Hour},
+				opts:     lazyOpts(time.Second, 10*time.Millisecond, nil, []string{"*"}),
+				deadline: 50 * time.Millisecond,
+			},
+			wantErr: context.DeadlineExceeded,
+			assert: func(v lazyVerdict, _ *scriptedTab, _ time.Time) {
+				So(v.Reason, ShouldEqual, verdictCanceled)
+			},
+		},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			Convey(tt.name, t, func() {
+				ctx := context.Background()
 
-	starts := tab.polls()
+				if tt.args.deadline > 0 {
+					var cancel context.CancelFunc
 
-	if len(starts) != 3 {
-		t.Fatalf("got %d polls, want 3", len(starts))
-	}
+					ctx, cancel = context.WithTimeout(ctx, tt.args.deadline)
+					t.Cleanup(cancel)
+				}
 
-	for i := 1; i < len(starts); i++ {
-		// 50 ms of the previous request plus 30 ms of interval
-		if d := starts[i].Sub(starts[i-1]); d < 80*time.Millisecond {
-			t.Errorf("poll %d started %v after the previous one, want at least 80ms", i, d)
-		}
-	}
-}
+				start := time.Now()
+				v, err := awaitLazyVerdict(ctx, tt.args.opts, waitTestURL, tt.args.tab.poll)
 
-func TestLazyVerdictByURL(t *testing.T) {
-	tab := &scriptedTab{states: []tabState{
-		{waitTestURL, "", false},
-		{"https://shop.example/captcha/?back=1", "shop.example/product/1/", false},
-	}}
+				if tt.wantErr != nil {
+					So(errors.Is(err, tt.wantErr), ShouldBeTrue)
+				} else {
+					So(err, ShouldBeNil)
+				}
 
-	v, err := awaitLazyVerdict(context.Background(), lazyOpts(time.Second, 10*time.Millisecond, []string{"*/captcha/*"}, []string{"*"}), waitTestURL, tab.poll)
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if v.Reason != verdictURL || v.Pattern != "*/captcha/*" || v.URL != "https://shop.example/captcha/?back=1" {
-		t.Errorf("got %+v, want a verdict by url", v)
-	}
-}
-
-// TestLazyVerdictURLBeforeTitle: when both conditions hold in one poll, the verdict is by url,
-// since waitReadyOnURL acts only on a verdict by url and a captcha page may have its own title.
-func TestLazyVerdictURLBeforeTitle(t *testing.T) {
-	tab := &scriptedTab{states: []tabState{{"https://shop.example/captcha/?back=1", "Access Denied", false}}}
-
-	v, err := awaitLazyVerdict(context.Background(), lazyOpts(time.Second, 10*time.Millisecond, []string{"*/captcha/*"}, []string{"*"}), waitTestURL, tab.poll)
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if v.Reason != verdictURL || v.Pattern != "*/captcha/*" {
-		t.Errorf("got %+v, want a verdict by url", v)
-	}
-}
-
-func TestLazyVerdictRedirectIsNotAVerdict(t *testing.T) {
-	tab := &scriptedTab{states: []tabState{
-		{waitTestURL, "shop.example/product/1/", false},
-		{"https://shop.example/product/1/?step=1", "shop.example/product/1/", false},
-		{"https://shop.example/product/1-canonical/?step=1", "shop.example/product/1/", false},
-		{"https://shop.example/product/1-canonical/?step=1", "Товар 1", false},
-	}}
-
-	v, err := awaitLazyVerdict(context.Background(), lazyOpts(time.Second, 10*time.Millisecond, []string{"*/captcha/*"}, []string{"*"}), waitTestURL, tab.poll)
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if v.Reason != verdictTitle || len(tab.polls()) != 4 {
-		t.Errorf("got %+v after %d polls, want a verdict by title on poll 4", v, len(tab.polls()))
-	}
-}
-
-func TestLazyVerdictSkipsEmptyURL(t *testing.T) {
-	tab := &scriptedTab{states: []tabState{
-		{"", "Товар 1", false},
-		{waitTestURL, "Товар 1", false},
-	}}
-
-	if _, err := awaitLazyVerdict(context.Background(), lazyOpts(time.Second, 10*time.Millisecond, nil, []string{"*"}), waitTestURL, tab.poll); err != nil {
-		t.Fatal(err)
-	}
-
-	if n := len(tab.polls()); n != 2 {
-		t.Errorf("verdict after %d polls, want 2: a poll with an empty address is skipped", n)
-	}
-}
-
-func TestLazyVerdictTimeout(t *testing.T) {
-	tab := &scriptedTab{states: []tabState{{waitTestURL, "shop.example/product/1/", false}}}
-	start := time.Now()
-
-	v, err := awaitLazyVerdict(context.Background(), lazyOpts(100*time.Millisecond, 10*time.Millisecond, nil, []string{"*"}), waitTestURL, tab.poll)
-
-	if err != nil {
-		t.Fatalf("the end of timeout is not an error, got %v", err)
-	}
-
-	if v.Reason != verdictTimeout || time.Since(start) < 100*time.Millisecond {
-		t.Errorf("got %+v after %v, want a timeout after 100ms", v, time.Since(start))
-	}
-
-	if v.URL != waitTestURL || v.Title != "shop.example/product/1/" {
-		t.Errorf("got %+v, want the last address and title in the verdict", v)
-	}
-}
-
-// TestLazyVerdictTimeoutDuringRequest: a poll still waiting for the browser when timeout ends
-// is dropped, the wait ends on time and it is still a timeout, not an error.
-func TestLazyVerdictTimeoutDuringRequest(t *testing.T) {
-	tab := &scriptedTab{states: []tabState{{waitTestURL, "", false}}, delay: time.Hour}
-	start := time.Now()
-
-	v, err := awaitLazyVerdict(context.Background(), lazyOpts(100*time.Millisecond, 10*time.Millisecond, nil, []string{"*"}), waitTestURL, tab.poll)
-
-	if err != nil || v.Reason != verdictTimeout {
-		t.Fatalf("got %+v, %v, want a timeout without an error", v, err)
-	}
-
-	if d := time.Since(start); d > time.Second {
-		t.Errorf("the wait took %v, want it to end at timeout", d)
-	}
-}
-
-func TestLazyVerdictPollError(t *testing.T) {
-	tab := &scriptedTab{err: rpcc.ErrConnClosing}
-
-	v, err := awaitLazyVerdict(context.Background(), lazyOpts(time.Second, 10*time.Millisecond, nil, []string{"*"}), waitTestURL, tab.poll)
-
-	if !errors.Is(err, rpcc.ErrConnClosing) || v.Reason != verdictPollError {
-		t.Errorf("got %+v, %v, want the poll error as is", v, err)
-	}
-}
-
-func TestLazyVerdictContextCanceled(t *testing.T) {
-	tab := &scriptedTab{states: []tabState{{waitTestURL, "", false}}}
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-
-	v, err := awaitLazyVerdict(ctx, lazyOpts(time.Second, 10*time.Millisecond, nil, []string{"*"}), waitTestURL, tab.poll)
-
-	if !errors.Is(err, context.DeadlineExceeded) || v.Reason != verdictCanceled {
-		t.Errorf("got %+v, %v, want the context error", v, err)
-	}
-}
-
-// TestLazyVerdictContextCanceledDuringRequest: the end of the DOCUMENT() deadline during a poll
-// request is a canceled context, not a timeout of lazyAttach.
-func TestLazyVerdictContextCanceledDuringRequest(t *testing.T) {
-	tab := &scriptedTab{states: []tabState{{waitTestURL, "", false}}, delay: time.Hour}
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-
-	v, err := awaitLazyVerdict(ctx, lazyOpts(time.Second, 10*time.Millisecond, nil, []string{"*"}), waitTestURL, tab.poll)
-
-	if !errors.Is(err, context.DeadlineExceeded) || v.Reason != verdictCanceled {
-		t.Errorf("got %+v, %v, want the context error", v, err)
-	}
-}
-
-func TestLazyVerdictAttachedSeen(t *testing.T) {
-	tab := &scriptedTab{states: []tabState{
-		{waitTestURL, "", true},
-		{waitTestURL, "Товар 1", false},
-	}}
-
-	v, err := awaitLazyVerdict(context.Background(), lazyOpts(time.Second, 10*time.Millisecond, nil, []string{"*"}), waitTestURL, tab.poll)
-
-	if err != nil || !v.AttachedSeen {
-		t.Errorf("got %+v, %v, want attached seen", v, err)
-	}
-}
-
-func TestLazyVerdictTitlePatternMustMatch(t *testing.T) {
-	tab := &scriptedTab{states: []tabState{{waitTestURL, "Товар 1", false}}}
-
-	v, err := awaitLazyVerdict(context.Background(), lazyOpts(60*time.Millisecond, 10*time.Millisecond, nil, []string{"404*"}), waitTestURL, tab.poll)
-
-	if err != nil || v.Reason != verdictTimeout {
-		t.Errorf("got %+v, %v, want a timeout: the title does not match the pattern", v, err)
+				tt.assert(v, tt.args.tab, start)
+			})
+		})
 	}
 }

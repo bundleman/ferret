@@ -3,8 +3,6 @@ package cdp
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -14,7 +12,9 @@ import (
 	"github.com/mafredri/cdp/protocol/page"
 	"github.com/mafredri/cdp/protocol/runtime"
 	"github.com/mafredri/cdp/rpcc"
+	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
+	. "github.com/smartystreets/goconvey/convey"
 
 	"github.com/MontFerret/ferret/pkg/drivers"
 	"github.com/MontFerret/ferret/pkg/drivers/cdp/eval"
@@ -113,136 +113,183 @@ func (s *lazySteps) build() lazyDocumentSteps {
 	}
 }
 
-func checkSteps(t *testing.T, got []string, want ...string) {
-	t.Helper()
+func Test_LazyDocumentSteps_Run(t *testing.T) {
+	type fields struct {
+		committed bool
+		navDelay  time.Duration
+		navNever  bool
+		navErr    error
+		parsedErr error
+		evalErr   error
+		rootErr   error
+	}
+	type args struct {
+		skipParsed bool
+		deadline   time.Duration
+	}
+	errParsed := errors.New("Execution context was destroyed")
+	errEval := errors.New("Uncaught")
+	errRoot := errors.New("no root")
+	tests := []struct {
+		name      string
+		fields    fields
+		args      args
+		wantErr   error
+		wantSteps []string
+		assert    func(s *lazySteps, report *lazyAttachReport)
+	}{
+		{
+			name:      "Should run every step of a committed document",
+			fields:    fields{committed: true},
+			wantSteps: []string{"subscribe", "committed?", "evaluateArgs", "wait parsed", "load root"},
+			assert: func(s *lazySteps, report *lazyAttachReport) {
+				So(s.nav.released, ShouldEqual, 1)
+				So(report.committed, ShouldEqual, "yes")
+				So(report.ready, ShouldEqual, "ready")
+			},
+		},
+		{
+			// Otherwise the user script would run in the initial blank document and be lost.
+			name:      "Should run the user script after the first navigation event of a document not committed yet",
+			fields:    fields{committed: false, navDelay: 20 * time.Millisecond},
+			wantSteps: []string{"subscribe", "committed?", "first navigation event", "evaluateArgs", "wait parsed", "load root"},
+			assert: func(s *lazySteps, report *lazyAttachReport) {
+				So(s.nav.released, ShouldEqual, 1)
+				So(report.committed, ShouldEqual, "no")
+			},
+		},
+		{
+			name:      "Should skip the wait for parsing",
+			fields:    fields{committed: true},
+			args:      args{skipParsed: true},
+			wantSteps: []string{"subscribe", "committed?", "evaluateArgs", "load root"},
+			assert: func(_ *lazySteps, report *lazyAttachReport) {
+				So(report.ready, ShouldEqual, "skipped")
+			},
+		},
+		{
+			// Otherwise the initial blank document would be loaded.
+			name:      "Should wait for the first navigation event also when the wait for parsing is skipped",
+			fields:    fields{committed: false},
+			args:      args{skipParsed: true},
+			wantSteps: []string{"subscribe", "committed?", "first navigation event", "evaluateArgs", "load root"},
+			assert:    func(*lazySteps, *lazyAttachReport) {},
+		},
+		{
+			name:      "Should end at the first navigation stage when the call ends",
+			fields:    fields{committed: false, navNever: true},
+			args:      args{deadline: 30 * time.Millisecond},
+			wantErr:   context.DeadlineExceeded,
+			wantSteps: []string{"subscribe", "committed?"},
+			assert: func(s *lazySteps, report *lazyAttachReport) {
+				So(s.nav.released, ShouldEqual, 1)
+				So(report.stage, ShouldEqual, stageFirstNavigation)
+				So(report.ready, ShouldEqual, notReached)
+			},
+		},
+		{
+			name:      "Should end the call on an error of the wait for parsing",
+			fields:    fields{committed: true, parsedErr: errParsed},
+			wantErr:   errParsed,
+			wantSteps: []string{"subscribe", "committed?", "evaluateArgs", "wait parsed"},
+			assert: func(_ *lazySteps, report *lazyAttachReport) {
+				So(report.stage, ShouldEqual, stageWaitParsed)
+				So(report.ready, ShouldEqual, "error")
+			},
+		},
+		{
+			name:    "Should mark the evaluate stage on an error of the user script",
+			fields:  fields{committed: true, evalErr: errEval},
+			wantErr: errEval,
+			assert: func(_ *lazySteps, report *lazyAttachReport) {
+				So(report.stage, ShouldEqual, stageEvaluate)
+				So(report.ready, ShouldEqual, notReached)
+			},
+		},
+		{
+			name:    "Should mark the load root stage on an error of loading the root document",
+			fields:  fields{committed: true, rootErr: errRoot},
+			wantErr: errRoot,
+			assert: func(_ *lazySteps, report *lazyAttachReport) {
+				So(report.stage, ShouldEqual, stageLoadRoot)
+				So(report.ready, ShouldEqual, "ready")
+			},
+		},
+		{
+			// A closed connection comes as an error message of the stream, not as an event.
+			name:      "Should end at the first navigation stage on an error of the navigation stream",
+			fields:    fields{committed: false, navErr: rpcc.ErrConnClosing},
+			wantErr:   rpcc.ErrConnClosing,
+			wantSteps: []string{"subscribe", "committed?"},
+			assert: func(s *lazySteps, report *lazyAttachReport) {
+				So(report.stage, ShouldEqual, stageFirstNavigation)
+				So(report.ready, ShouldEqual, notReached)
+				So(s.nav.released, ShouldEqual, 1)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			Convey(tt.name, t, func() {
+				s := newLazySteps(tt.fields.committed)
+				s.nav.delay, s.nav.never, s.nav.err = tt.fields.navDelay, tt.fields.navNever, tt.fields.navErr
+				s.parsedErr, s.evalErr, s.rootErr = tt.fields.parsedErr, tt.fields.evalErr, tt.fields.rootErr
+				report := newLazyAttachReport(drivers.Params{})
 
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("steps %q, want %q", got, want)
+				// A broken wait must fail the case, not hang the test.
+				deadline := tt.args.deadline
+				if deadline == 0 {
+					deadline = 5 * time.Second
+				}
+
+				ctx, cancel := context.WithTimeout(context.Background(), deadline)
+				t.Cleanup(cancel)
+
+				err := s.build().run(ctx, tt.args.skipParsed, report)
+
+				if tt.wantErr != nil {
+					So(errors.Is(err, tt.wantErr), ShouldBeTrue)
+				} else {
+					So(err, ShouldBeNil)
+				}
+
+				if tt.wantSteps != nil {
+					So(s.steps, ShouldResemble, tt.wantSteps)
+				}
+
+				tt.assert(s, report)
+			})
+		})
 	}
 }
 
-func TestLazyDocumentCommitted(t *testing.T) {
-	s := newLazySteps(true)
-	report := newLazyAttachReport(drivers.Params{})
-
-	if err := s.build().run(context.Background(), false, report); err != nil {
-		t.Fatal(err)
-	}
-
-	checkSteps(t, s.steps, "subscribe", "committed?", "evaluateArgs", "wait parsed", "load root")
-
-	if s.nav.released != 1 || report.committed != "yes" || report.ready != "ready" {
-		t.Errorf("released %d, report %+v", s.nav.released, report)
-	}
-}
-
-// TestLazyDocumentNotCommitted: the user script runs after the first navigation event,
-// otherwise it would run in the initial blank document and be lost.
-func TestLazyDocumentNotCommitted(t *testing.T) {
-	s := newLazySteps(false)
-	s.nav.delay = 20 * time.Millisecond
-	report := newLazyAttachReport(drivers.Params{})
-
-	if err := s.build().run(context.Background(), false, report); err != nil {
-		t.Fatal(err)
-	}
-
-	checkSteps(t, s.steps, "subscribe", "committed?", "first navigation event", "evaluateArgs", "wait parsed", "load root")
-
-	if s.nav.released != 1 || report.committed != "no" {
-		t.Errorf("released %d, report %+v", s.nav.released, report)
-	}
-}
-
-func TestLazyDocumentSkipParsed(t *testing.T) {
-	s := newLazySteps(true)
-	report := newLazyAttachReport(drivers.Params{})
-
-	if err := s.build().run(context.Background(), true, report); err != nil {
-		t.Fatal(err)
-	}
-
-	checkSteps(t, s.steps, "subscribe", "committed?", "evaluateArgs", "load root")
-
-	if report.ready != "skipped" {
-		t.Errorf("report %+v, want the wait for parsing skipped", report)
-	}
-}
-
-// TestLazyDocumentSkipParsedNotCommitted: waitReadyOnURL false does not skip the first
-// navigation event, otherwise the initial blank document would be loaded.
-func TestLazyDocumentSkipParsedNotCommitted(t *testing.T) {
-	s := newLazySteps(false)
-
-	if err := s.build().run(context.Background(), true, newLazyAttachReport(drivers.Params{})); err != nil {
-		t.Fatal(err)
-	}
-
-	checkSteps(t, s.steps, "subscribe", "committed?", "first navigation event", "evaluateArgs", "load root")
-}
-
-func TestLazyDocumentDeadlineInFirstNavigation(t *testing.T) {
-	s := newLazySteps(false)
-	s.nav.never = true
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
-	defer cancel()
-	report := newLazyAttachReport(drivers.Params{})
-
-	err := s.build().run(ctx, false, report)
-
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("got %v, want the context error", err)
-	}
-
-	checkSteps(t, s.steps, "subscribe", "committed?")
-
-	if s.nav.released != 1 || report.stage != stageFirstNavigation || report.ready != notReached {
-		t.Errorf("released %d, report %+v", s.nav.released, report)
-	}
-}
-
-func TestLazyDocumentParsedError(t *testing.T) {
-	s := newLazySteps(true)
-	s.parsedErr = errors.New("Execution context was destroyed")
-	report := newLazyAttachReport(drivers.Params{})
-
-	err := s.build().run(context.Background(), false, report)
-
-	if err == nil {
-		t.Fatal("an error of the wait for parsing must end the call")
-	}
-
-	checkSteps(t, s.steps, "subscribe", "committed?", "evaluateArgs", "wait parsed")
-
-	if report.stage != stageWaitParsed || report.ready != "error" {
-		t.Errorf("report %+v", report)
-	}
-}
-
-func TestSkipParsedFor(t *testing.T) {
-	cases := []struct {
+func Test_SkipParsedFor(t *testing.T) {
+	tests := []struct {
+		name   string
 		reason string
 		wait   bool
-		skip   bool
+		want   bool
 	}{
-		{verdictURL, true, false},
-		{verdictURL, false, true},
-		{verdictTitle, false, false},
-		{verdictTimeout, false, false},
-		{verdictTitle, true, false},
+		{name: "Should wait after a verdict by url with waitReadyOnURL", reason: verdictURL, wait: true, want: false},
+		{name: "Should skip after a verdict by url without waitReadyOnURL", reason: verdictURL, wait: false, want: true},
+		{name: "Should wait after a verdict by title without waitReadyOnURL", reason: verdictTitle, wait: false, want: false},
+		{name: "Should wait after a timeout without waitReadyOnURL", reason: verdictTimeout, wait: false, want: false},
+		{name: "Should wait after a verdict by title with waitReadyOnURL", reason: verdictTitle, wait: true, want: false},
 	}
-
-	for _, c := range cases {
-		opts := &drivers.LazyAttach{WaitReadyOnURL: c.wait}
-
-		if got := skipParsedFor(lazyVerdict{Reason: c.reason}, opts); got != c.skip {
-			t.Errorf("verdict %s, waitReadyOnURL %v: skip %v, want %v", c.reason, c.wait, got, c.skip)
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			Convey(tt.name, t, func() {
+				So(skipParsedFor(lazyVerdict{Reason: tt.reason}, &drivers.LazyAttach{WaitReadyOnURL: tt.wait}), ShouldEqual, tt.want)
+			})
+		})
 	}
 }
 
-// staleContextText is the text Chrome gives for a call into a destroyed execution context.
+// staleContextText is the text Chrome gives for a call into a destroyed execution context, the one
+// eval.IsStaleContextErr matches, so it keeps Chrome's capital letter and period.
 const staleContextText = "Execution context was destroyed."
+
+var errStaleContext = errors.New(staleContextText)
 
 // fakeRuntime answers Runtime.callFunctionOn from a script: "parsed", "loading", "stale" or an
 // error text, repeating the last answer.
@@ -277,7 +324,7 @@ func (r *fakeRuntime) CallFunctionOn(_ context.Context, args *runtime.CallFuncti
 	case "loading":
 		return &runtime.CallFunctionOnReply{Result: runtime.RemoteObject{Type: "object"}}, nil
 	case "stale":
-		return nil, errors.New(staleContextText)
+		return nil, errStaleContext
 	case "exception":
 		desc := "TypeError: document is not defined"
 
@@ -314,150 +361,190 @@ func parsedRuntime(answers ...string) (*eval.Runtime, *fakeRuntime, *fakeWorlds)
 	return eval.New(zerolog.Nop(), client, "F1", 1), rt, worlds
 }
 
-func TestWaitParsedReturnsAtOnce(t *testing.T) {
-	ec, rt, _ := parsedRuntime("parsed")
+func Test_WaitParsed(t *testing.T) {
+	type fields struct {
+		answers  []string
+		worldErr error
+	}
+	errWorld := errors.New("Cannot find frame with given id")
+	tests := []struct {
+		name     string
+		fields   fields
+		deadline time.Duration
+		wantErr  error
+		// errText is checked where the error wraps nothing: an exception in the page is a new error.
+		errText string
+		assert  func(rt *fakeRuntime, worlds *fakeWorlds)
+	}{
+		{
+			name:   "Should return at once when the document is parsed",
+			fields: fields{answers: []string{"parsed"}},
+			assert: func(rt *fakeRuntime, _ *fakeWorlds) {
+				So(rt.calls, ShouldEqual, 1)
+			},
+		},
+		{
+			name:   "Should wait while the document is loading",
+			fields: fields{answers: []string{"loading", "loading", "parsed"}},
+			assert: func(rt *fakeRuntime, _ *fakeWorlds) {
+				So(rt.calls, ShouldEqual, 3)
+			},
+		},
+		{
+			name:   "Should recreate the isolated world and repeat the call when the document changed between polls",
+			fields: fields{answers: []string{"loading", "stale", "parsed"}},
+			assert: func(rt *fakeRuntime, worlds *fakeWorlds) {
+				So(worlds.calls, ShouldEqual, 1)
+				So(rt.calls, ShouldEqual, 3)
+			},
+		},
+		{
+			// The retry is one per call and the wait ends on the first error.
+			name:    "Should fail when the call and its retry both hit a changed document",
+			fields:  fields{answers: []string{"stale", "stale", "parsed"}},
+			wantErr: errStaleContext,
+			assert: func(rt *fakeRuntime, worlds *fakeWorlds) {
+				So(rt.calls, ShouldEqual, 2)
+				So(worlds.calls, ShouldEqual, 1)
+			},
+		},
+		{
+			name:    "Should fail when the isolated world cannot be recreated",
+			fields:  fields{answers: []string{"stale", "parsed"}, worldErr: errWorld},
+			wantErr: errWorld,
+			assert: func(rt *fakeRuntime, worlds *fakeWorlds) {
+				So(rt.calls, ShouldEqual, 1)
+				So(worlds.calls, ShouldEqual, 1)
+			},
+		},
+		{
+			name:     "Should return the context error when the call ends",
+			fields:   fields{answers: []string{"loading"}},
+			deadline: 50 * time.Millisecond,
+			wantErr:  context.DeadlineExceeded,
+			assert:   func(*fakeRuntime, *fakeWorlds) {},
+		},
+		{
+			// An exception in the page comes as a reply with ExceptionDetails, not as a transport error.
+			name:    "Should fail on an exception in the page",
+			fields:  fields{answers: []string{"exception"}},
+			errText: "TypeError: document is not defined",
+			assert: func(rt *fakeRuntime, _ *fakeWorlds) {
+				So(rt.calls, ShouldEqual, 1)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			Convey(tt.name, t, func() {
+				ec, rt, worlds := parsedRuntime(tt.fields.answers...)
+				worlds.err = tt.fields.worldErr
 
-	if err := waitParsed(context.Background(), ec, 10*time.Millisecond); err != nil || rt.calls != 1 {
-		t.Errorf("got %v after %d calls, want one call", err, rt.calls)
+				// A broken wait must fail the case, not hang the test.
+				deadline := tt.deadline
+				if deadline == 0 {
+					deadline = 5 * time.Second
+				}
+
+				ctx, cancel := context.WithTimeout(context.Background(), deadline)
+				t.Cleanup(cancel)
+
+				err := waitParsed(ctx, ec, 10*time.Millisecond)
+
+				switch {
+				case tt.wantErr != nil:
+					So(errors.Is(err, tt.wantErr), ShouldBeTrue)
+				case tt.errText != "":
+					So(err, ShouldNotBeNil)
+					So(err.Error(), ShouldContainSubstring, tt.errText)
+				default:
+					So(err, ShouldBeNil)
+				}
+
+				tt.assert(rt, worlds)
+			})
+		})
 	}
 }
 
-func TestWaitParsedWaitsWhileLoading(t *testing.T) {
-	ec, rt, _ := parsedRuntime("loading", "loading", "parsed")
+// The fake runtime answers only this condition, so the other tests check that waitParsed uses it.
+func Test_DOMParsedTemplate(t *testing.T) {
+	Convey("Should wait for any readyState but loading and never for complete", t, func() {
+		src := templates.DOMParsed().String()
 
-	if err := waitParsed(context.Background(), ec, 10*time.Millisecond); err != nil || rt.calls != 3 {
-		t.Errorf("got %v after %d calls, want three calls", err, rt.calls)
-	}
+		So(src, ShouldContainSubstring, "document.readyState !== 'loading'")
+		So(src, ShouldNotContainSubstring, "complete")
+	})
 }
 
-// TestWaitParsedDocumentChangedBetweenPolls: a stale context recreates the isolated world and the
-// call is repeated in the new document.
-func TestWaitParsedDocumentChangedBetweenPolls(t *testing.T) {
-	ec, rt, worlds := parsedRuntime("loading", "stale", "parsed")
-
-	if err := waitParsed(context.Background(), ec, 10*time.Millisecond); err != nil || worlds.calls != 1 || rt.calls != 3 {
-		t.Errorf("got %v after %d calls and %d new worlds", err, rt.calls, worlds.calls)
-	}
-}
-
-// TestWaitParsedCallAndRetryBothStale: the retry is one per call and the wait ends on the first
-// error, so a change of document hit by the call and its retry ends the wait with an error.
-func TestWaitParsedCallAndRetryBothStale(t *testing.T) {
-	ec, _, _ := parsedRuntime("stale", "stale", "parsed")
-
-	if err := waitParsed(context.Background(), ec, 10*time.Millisecond); err == nil {
-		t.Error("want an error")
-	}
-}
-
-func TestWaitParsedWorldRecreationFails(t *testing.T) {
-	ec, _, worlds := parsedRuntime("stale", "parsed")
-	worlds.err = errors.New("Cannot find frame with given id")
-
-	if err := waitParsed(context.Background(), ec, 10*time.Millisecond); err == nil {
-		t.Error("want an error")
-	}
-}
-
-func TestWaitParsedDeadline(t *testing.T) {
-	ec, _, _ := parsedRuntime("loading")
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-
-	if err := waitParsed(ctx, ec, 10*time.Millisecond); !errors.Is(err, context.DeadlineExceeded) {
-		t.Errorf("got %v, want the context error", err)
-	}
-}
-
-// TestWaitParsedPageException: an exception in the page comes as a reply with ExceptionDetails,
-// not as a transport error, and it ends the wait too.
-func TestWaitParsedPageException(t *testing.T) {
-	ec, _, _ := parsedRuntime("exception")
-
-	if err := waitParsed(context.Background(), ec, 10*time.Millisecond); err == nil {
-		t.Error("want an error")
-	}
-}
-
-// TestDOMParsedTemplate guards the condition itself: the end of HTML parsing is any readyState
-// but loading, and complete is not waited for. The fake runtime answers only this condition, so
-// waitParsed is checked to use it.
-func TestDOMParsedTemplate(t *testing.T) {
-	src := templates.DOMParsed().String()
-
-	if !strings.Contains(src, "document.readyState !== 'loading'") || strings.Contains(src, "complete") {
-		t.Errorf("unexpected template %q", src)
-	}
-}
-
-func TestPageLoadStepFor(t *testing.T) {
+func Test_PageLoadStepFor(t *testing.T) {
 	urlVerdict := newLazyAttachReport(drivers.Params{})
 	urlVerdict.setVerdict(lazyVerdict{Reason: verdictURL})
 	titleVerdict := newLazyAttachReport(drivers.Params{})
 	titleVerdict.setVerdict(lazyVerdict{Reason: verdictTitle})
 	skipOnURL := &drivers.LazyAttach{WaitReadyOnURL: false}
 	waitOnURL := &drivers.LazyAttach{WaitReadyOnURL: true}
-
-	cases := []struct {
-		name   string
-		params drivers.Params
-		report *lazyAttachReport
-		step   pageLoadStep
-		skip   bool
+	tests := []struct {
+		name     string
+		params   drivers.Params
+		report   *lazyAttachReport
+		wantStep pageLoadStep
+		wantSkip bool
 	}{
-		{"blank", drivers.Params{URL: BlankPageURL, DirectNavigation: true, LazyAttach: skipOnURL}, urlVerdict, stepLoadBlank, false},
-		{"empty url", drivers.Params{}, nil, stepLoadBlank, false},
-		{"navigate", drivers.Params{URL: waitTestURL}, nil, stepNavigate, false},
-		{"direct without lazyAttach", drivers.Params{URL: waitTestURL, DirectNavigation: true}, nil, stepDirect, false},
-		{"lazy, url, waitReadyOnURL false", drivers.Params{URL: waitTestURL, DirectNavigation: true, LazyAttach: skipOnURL}, urlVerdict, stepLazy, true},
-		{"lazy, url, waitReadyOnURL true", drivers.Params{URL: waitTestURL, DirectNavigation: true, LazyAttach: waitOnURL}, urlVerdict, stepLazy, false},
-		{"lazy, title, waitReadyOnURL false", drivers.Params{URL: waitTestURL, DirectNavigation: true, LazyAttach: skipOnURL}, titleVerdict, stepLazy, false},
-		{"lazy without report", drivers.Params{URL: waitTestURL, DirectNavigation: true, LazyAttach: skipOnURL}, nil, stepLazy, false},
+		{
+			name:     "Should load a blank page as is",
+			params:   drivers.Params{URL: BlankPageURL, DirectNavigation: true, LazyAttach: skipOnURL},
+			report:   urlVerdict,
+			wantStep: stepLoadBlank,
+		},
+		{
+			name:     "Should load a page without a URL as blank",
+			params:   drivers.Params{},
+			wantStep: stepLoadBlank,
+		},
+		{
+			name:     "Should navigate without directNavigation",
+			params:   drivers.Params{URL: waitTestURL},
+			wantStep: stepNavigate,
+		},
+		{
+			name:     "Should take the direct step without lazyAttach",
+			params:   drivers.Params{URL: waitTestURL, DirectNavigation: true},
+			wantStep: stepDirect,
+		},
+		{
+			name:     "Should skip the wait for parsing after a verdict by url without waitReadyOnURL",
+			params:   drivers.Params{URL: waitTestURL, DirectNavigation: true, LazyAttach: skipOnURL},
+			report:   urlVerdict,
+			wantStep: stepLazy,
+			wantSkip: true,
+		},
+		{
+			name:     "Should wait for parsing after a verdict by url with waitReadyOnURL",
+			params:   drivers.Params{URL: waitTestURL, DirectNavigation: true, LazyAttach: waitOnURL},
+			report:   urlVerdict,
+			wantStep: stepLazy,
+		},
+		{
+			name:     "Should wait for parsing after a verdict by title",
+			params:   drivers.Params{URL: waitTestURL, DirectNavigation: true, LazyAttach: skipOnURL},
+			report:   titleVerdict,
+			wantStep: stepLazy,
+		},
+		{
+			name:     "Should wait for parsing without a report",
+			params:   drivers.Params{URL: waitTestURL, DirectNavigation: true, LazyAttach: skipOnURL},
+			wantStep: stepLazy,
+		},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			Convey(tt.name, t, func() {
+				step, skip := pageLoadStepFor(tt.params, tt.report)
 
-	for _, c := range cases {
-		step, skip := pageLoadStepFor(c.params, c.report)
-
-		if step != c.step || skip != c.skip {
-			t.Errorf("%s: got step %v, skip %v, want %v, %v", c.name, step, skip, c.step, c.skip)
-		}
-	}
-}
-
-func TestLazyDocumentStepErrorsMarkStage(t *testing.T) {
-	ev := newLazySteps(true)
-	ev.evalErr = errors.New("Uncaught")
-	report := newLazyAttachReport(drivers.Params{})
-
-	if err := ev.build().run(context.Background(), false, report); err == nil || report.stage != stageEvaluate || report.ready != notReached {
-		t.Errorf("evaluateArgs: got %v, report %+v", err, report)
-	}
-
-	root := newLazySteps(true)
-	root.rootErr = errors.New("no root")
-	report = newLazyAttachReport(drivers.Params{})
-
-	if err := root.build().run(context.Background(), false, report); err == nil || report.stage != stageLoadRoot || report.ready != "ready" {
-		t.Errorf("load root: got %v, report %+v", err, report)
-	}
-}
-
-// TestLazyDocumentFirstNavigationStreamError: an error message of the navigation stream, such as a
-// closed connection, ends the call at the first navigation stage instead of passing as an event.
-func TestLazyDocumentFirstNavigationStreamError(t *testing.T) {
-	s := newLazySteps(false)
-	s.nav.err = rpcc.ErrConnClosing
-	report := newLazyAttachReport(drivers.Params{})
-
-	err := s.build().run(context.Background(), false, report)
-
-	if !errors.Is(err, rpcc.ErrConnClosing) {
-		t.Fatalf("got %v, want the stream error", err)
-	}
-
-	checkSteps(t, s.steps, "subscribe", "committed?")
-
-	if report.stage != stageFirstNavigation || report.ready != notReached || s.nav.released != 1 {
-		t.Errorf("released %d, report %+v", s.nav.released, report)
+				So(step, ShouldEqual, tt.wantStep)
+				So(skip, ShouldEqual, tt.wantSkip)
+			})
+		})
 	}
 }

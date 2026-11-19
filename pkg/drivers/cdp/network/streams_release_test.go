@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/rs/zerolog"
+	. "github.com/smartystreets/goconvey/convey"
 )
 
 type (
@@ -30,19 +31,16 @@ func (s *countingNavigatedWithinDocument) Close() error {
 	return nil
 }
 
-// TestNavigationEventStreamRelease: Release stops both subscriptions without waiting for the
-// document, also when no event has been read, which Close does not do.
-func TestNavigationEventStreamRelease(t *testing.T) {
-	onFrame := &countingFrameNavigated{fakeFrameNavigated: &fakeFrameNavigated{ready: make(chan struct{})}}
-	onDoc := &countingNavigatedWithinDocument{fakeNavigatedWithinDocument: &fakeNavigatedWithinDocument{ready: make(chan struct{})}}
+func Test_NavigationEventStream_Release(t *testing.T) {
+	// Unlike Close, Release does not wait for the document, so it works before any event is read.
+	Convey("Should stop both subscriptions once without waiting for the document", t, func() {
+		onFrame := &countingFrameNavigated{fakeFrameNavigated: &fakeFrameNavigated{ready: make(chan struct{})}}
+		onDoc := &countingNavigatedWithinDocument{fakeNavigatedWithinDocument: &fakeNavigatedWithinDocument{ready: make(chan struct{})}}
 
-	stream := newNavigationEventStream(zerolog.Nop(), nil, onFrame, onDoc)
+		stream := newNavigationEventStream(zerolog.Nop(), nil, onFrame, onDoc)
 
-	if err := stream.Release(); err != nil {
-		t.Fatal(err)
-	}
-
-	if onFrame.closed != 1 || onDoc.closed != 1 {
-		t.Errorf("closed frame %d and document %d streams, want both once", onFrame.closed, onDoc.closed)
-	}
+		So(stream.Release(), ShouldBeNil)
+		So(onFrame.closed, ShouldEqual, 1)
+		So(onDoc.closed, ShouldEqual, 1)
+	})
 }

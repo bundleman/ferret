@@ -3,112 +3,162 @@ package html
 import (
 	"bytes"
 	"context"
-	"strings"
 	"testing"
+
+	"github.com/pkg/errors"
+	. "github.com/smartystreets/goconvey/convey"
 
 	"github.com/MontFerret/ferret/pkg/runtime/core"
 	"github.com/MontFerret/ferret/pkg/runtime/logging"
 	"github.com/MontFerret/ferret/pkg/runtime/values"
 )
 
-// parseIsolated parses DOCUMENT() params of lazyTestURL from the given properties.
-func parseIsolated(props ...*values.ObjectProperty) (PageLoadParams, error) {
-	return newPageLoadParams(values.NewString(lazyTestURL), values.NewObjectWith(props...))
-}
-
-func TestIsolatedContextParsed(t *testing.T) {
-	cases := []struct {
+func Test_NewPageLoadParams_IsolatedContext(t *testing.T) {
+	type args struct {
 		props []*values.ObjectProperty
-		want  bool
-	}{
-		{nil, false},
-		{[]*values.ObjectProperty{lazyProp("isolatedContext", values.True)}, true},
-		{[]*values.ObjectProperty{lazyProp("isolatedContext", values.False)}, false},
-		// keepCookies: false and fetchMode: false do not conflict with an own context
-		{[]*values.ObjectProperty{lazyProp("isolatedContext", values.True), lazyProp("keepCookies", values.False)}, true},
-		{[]*values.ObjectProperty{lazyProp("isolatedContext", values.True), lazyProp("fetchMode", values.False)}, true},
-		// isolatedContext: false conflicts with nothing
-		{[]*values.ObjectProperty{lazyProp("isolatedContext", values.False), lazyProp("keepCookies", values.True)}, false},
 	}
+	isolated := values.NewObjectProperty("isolatedContext", values.True)
+	keepCookies := values.NewObjectProperty("keepCookies", values.True)
+	fetchMode := values.NewObjectProperty("fetchMode", values.True)
+	tests := []struct {
+		name        string
+		args        args
+		want        bool
+		wantErr     error
+		wantErrText string
+	}{
+		{
+			name: "Should be off when omitted",
+			args: args{},
+			want: false,
+		},
+		{
+			name: "Should be on when true",
+			args: args{props: []*values.ObjectProperty{isolated}},
+			want: true,
+		},
+		{
+			name: "Should be off when false",
+			args: args{props: []*values.ObjectProperty{values.NewObjectProperty("isolatedContext", values.False)}},
+			want: false,
+		},
+		{
+			name: "Should allow keepCookies: false",
+			args: args{props: []*values.ObjectProperty{isolated, values.NewObjectProperty("keepCookies", values.False)}},
+			want: true,
+		},
+		{
+			name: "Should allow fetchMode: false",
+			args: args{props: []*values.ObjectProperty{isolated, values.NewObjectProperty("fetchMode", values.False)}},
+			want: true,
+		},
+		{
+			name: "Should allow keepCookies: true when isolatedContext is false",
+			args: args{props: []*values.ObjectProperty{values.NewObjectProperty("isolatedContext", values.False), keepCookies}},
+			want: false,
+		},
+		{
+			name:        "Should reject keepCookies: true",
+			args:        args{props: []*values.ObjectProperty{isolated, keepCookies}},
+			wantErr:     errIsolatedContext,
+			wantErrText: "isolatedContext: cannot be used with keepCookies: true",
+		},
+		{
+			name:        "Should reject keepCookies: true given before it",
+			args:        args{props: []*values.ObjectProperty{keepCookies, isolated}},
+			wantErr:     errIsolatedContext,
+			wantErrText: "isolatedContext: cannot be used with keepCookies: true",
+		},
+		{
+			name:        "Should reject fetchMode: true",
+			args:        args{props: []*values.ObjectProperty{isolated, fetchMode}},
+			wantErr:     errIsolatedContext,
+			wantErrText: "isolatedContext: cannot be used with fetchMode: true",
+		},
+		{
+			name:        "Should reject fetchMode: true given before it",
+			args:        args{props: []*values.ObjectProperty{fetchMode, isolated}},
+			wantErr:     errIsolatedContext,
+			wantErrText: "isolatedContext: cannot be used with fetchMode: true",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			Convey(tt.name, t, func() {
+				res, err := newPageLoadParams(values.NewString(lazyTestURL), values.NewObjectWith(tt.args.props...))
+				if tt.wantErr != nil {
+					So(errors.Is(err, tt.wantErr), ShouldBeTrue)
+					So(err.Error(), ShouldEqual, tt.wantErrText)
 
-	for i, c := range cases {
-		res, err := parseIsolated(c.props...)
-
-		if err != nil {
-			t.Fatalf("case %d: %v", i, err)
-		}
-
-		if res.IsolatedContext != c.want {
-			t.Errorf("case %d: IsolatedContext %v, want %v", i, res.IsolatedContext, c.want)
-		}
+					return
+				}
+				So(err, ShouldBeNil)
+				So(res.IsolatedContext, ShouldEqual, tt.want)
+			})
+		})
 	}
 }
 
-// core.Error does not wrap its error, so the errors are told by their text.
-func TestIsolatedContextTypeError(t *testing.T) {
-	_, err := parseIsolated(lazyProp("isolatedContext", values.NewString("true")))
-
-	if err == nil || !strings.HasPrefix(err.Error(), "invalid type: expected [boolean], but got string") {
-		t.Errorf("want a type error, got %v", err)
-	}
-}
-
-func TestIsolatedContextConflicts(t *testing.T) {
-	cases := []struct {
-		other *values.ObjectProperty
-		text  string
-	}{
-		{lazyProp("keepCookies", values.True), "keepCookies"},
-		{lazyProp("fetchMode", values.True), "fetchMode"},
-	}
-
-	for _, c := range cases {
-		// the order of the keys in the object does not matter
-		for _, props := range [][]*values.ObjectProperty{
-			{lazyProp("isolatedContext", values.True), c.other},
-			{c.other, lazyProp("isolatedContext", values.True)},
-		} {
-			_, err := parseIsolated(props...)
-
-			if err == nil || err.Error() != "isolatedContext: cannot be used with "+c.text+": true" {
-				t.Errorf("isolatedContext with %s: want an isolatedContext error naming both, got %v", c.text, err)
-			}
-		}
-	}
-}
-
-// TestOpenLogsIsolatedContextParseError: a query may swallow the error of DOCUMENT() with '?',
-// so a conflicting isolatedContext is also written to the log at warn level, like lazyAttach.
-// A wrong type is not, as with directNavigation.
-func TestOpenLogsIsolatedContextParseError(t *testing.T) {
-	cases := []struct {
-		value core.Value
-		warn  bool
-	}{
-		{values.True, true},
-		{values.NewString("true"), false},
-	}
-
-	for _, c := range cases {
-		var buf bytes.Buffer
-
-		ctx := logging.WithContext(context.Background(), logging.Options{Writer: &buf, Level: logging.Level(0)})
-
-		_, err := Open(ctx, values.NewString(lazyTestURL), values.NewObjectWith(
-			lazyProp("driver", values.NewString("cdp")),
-			lazyProp("keepCookies", values.True),
-			lazyProp("isolatedContext", c.value),
+// core.TypeError wraps no sentinel, so the error is told by its text.
+func Test_NewPageLoadParams_IsolatedContextWrongType(t *testing.T) {
+	Convey("Should reject a value of another type", t, func() {
+		_, err := newPageLoadParams(values.NewString(lazyTestURL), values.NewObjectWith(
+			values.NewObjectProperty("isolatedContext", values.NewString("true")),
 		))
+		So(err, ShouldNotBeNil)
+		So(err.Error(), ShouldContainSubstring, "invalid type: expected [boolean], but got string")
+		So(errors.Is(err, errIsolatedContext), ShouldBeFalse)
+	})
+}
 
-		if err == nil {
-			t.Fatalf("%v: want a parse error", c.value)
-		}
+// A query may swallow the error of DOCUMENT() with '?', so a conflicting isolatedContext is also
+// written to the log at warn level, as a broken lazyAttach is. A wrong type is not, as with directNavigation.
+func Test_Open_LogsIsolatedContextConflict(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    core.Value
+		wantWarn bool
+		// wantErrText tells the parse error of a case without a warn record from any other error of Open.
+		wantErrText string
+	}{
+		{
+			name:     "Should write a warn record for a conflict with keepCookies",
+			value:    values.True,
+			wantWarn: true,
+		},
+		{
+			name:        "Should not write a warn record for a value of another type",
+			value:       values.NewString("true"),
+			wantErrText: "invalid type",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			Convey(tt.name, t, func() {
+				var buf bytes.Buffer
 
-		out := buf.String()
-		warned := strings.Contains(out, `"level":"warn"`) && strings.Contains(out, lazyTestURL) && strings.Contains(out, err.Error())
+				ctx, cancel := context.WithCancel(context.Background())
+				t.Cleanup(cancel)
+				ctx = logging.WithContext(ctx, logging.Options{Writer: &buf, Level: logging.Level(0)})
 
-		if warned != c.warn {
-			t.Errorf("%v: warn %v, got %q", c.value, c.warn, out)
-		}
+				_, err := Open(ctx, values.NewString(lazyTestURL), values.NewObjectWith(
+					values.NewObjectProperty("driver", values.NewString("cdp")),
+					values.NewObjectProperty("keepCookies", values.True),
+					values.NewObjectProperty("isolatedContext", tt.value),
+				))
+				So(err, ShouldNotBeNil)
+
+				out := buf.String()
+				if !tt.wantWarn {
+					So(err.Error(), ShouldContainSubstring, tt.wantErrText)
+					So(out, ShouldNotContainSubstring, `"level":"warn"`)
+
+					return
+				}
+				So(out, ShouldContainSubstring, `"level":"warn"`)
+				So(out, ShouldContainSubstring, lazyTestURL)
+				So(out, ShouldContainSubstring, err.Error())
+			})
+		})
 	}
 }
